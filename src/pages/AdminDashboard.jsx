@@ -141,7 +141,7 @@ export default function AdminDashboard() {
 
   const textColor = isDark ? 'text-white' : 'text-gray-800';
   const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
-  const cardBg = isDark ? 'bg-gray-800' : 'bg-white';
+  const cardBg = isDark ? 'bg-slate-800' : 'bg-white';
 
   if (currentView === 'repair') {
     return (
@@ -346,7 +346,7 @@ export default function AdminDashboard() {
 
         <button 
           onClick={() => setCurrentView('students')}
-          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:shadow-md'}`}
+          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white hover:shadow-md'}`}
         >
           <div className="text-left">
             <h3 className={`text-lg font-bold ${textColor}`}>{t.rosterTitle}</h3>
@@ -355,27 +355,31 @@ export default function AdminDashboard() {
           <svg className={`w-6 h-6 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </button>
 
-        <button 
-          onClick={() => setCurrentView('staff_list')}
-          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:shadow-md'}`}
-        >
-          <div className="text-left">
-            <h3 className={`text-lg font-bold text-purple-600`}>👨‍🏫 教職員名冊與權限管理</h3>
-            <p className={`text-sm ${subTextColor}`}>查看全校教職員、LINE 綁定狀態與權限標籤</p>
-          </div>
-          <svg className={`w-6 h-6 text-purple-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-        </button>
+        {(staffData?.role_tags?.includes('0') || staffData?.email?.includes('u864001')) && (
+          <>
+            <button 
+              onClick={() => setCurrentView('staff_list')}
+              className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white hover:shadow-md'}`}
+            >
+              <div className="text-left">
+                <h3 className={`text-lg font-bold text-purple-600`}>👨‍🏫 教職員名冊與權限管理</h3>
+                <p className={`text-sm ${subTextColor}`}>超級管理員專屬：查看綁定狀態與權限</p>
+              </div>
+              <svg className={`w-6 h-6 text-purple-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+            </button>
 
-        <button 
-          onClick={() => setCurrentView('import')}
-          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-gray-800 hover:bg-gray-700 border border-blue-900' : 'bg-white hover:shadow-md border border-blue-100'}`}
-        >
-          <div className="text-left">
-            <h3 className={`text-lg font-bold text-blue-500`}>🗄️ 系統資料庫匯入區</h3>
-            <p className={`text-sm ${subTextColor}`}>以 Excel 批次上傳全校學生與教職員名單</p>
-          </div>
-          <svg className={`w-6 h-6 text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-        </button>
+            <button 
+              onClick={() => setCurrentView('import')}
+              className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-slate-800 hover:bg-slate-700 border border-emerald-900' : 'bg-white hover:shadow-md border border-emerald-100'}`}
+            >
+              <div className="text-left">
+                <h3 className={`text-lg font-bold text-emerald-600`}>🗄️ 系統資料庫匯入區</h3>
+                <p className={`text-sm ${subTextColor}`}>超級管理員專屬：批次上傳學生與教職員</p>
+              </div>
+              <svg className={`w-6 h-6 text-emerald-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
