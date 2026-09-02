@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
 import { useApp } from '../App';
+import liff from '@line/liff';
 
 export default function StaffList() {
   const { isDark } = useApp();
@@ -13,9 +13,25 @@ export default function StaffList() {
 
   const fetchStaff = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase.from('staff').select('*').order('created_at', { ascending: false });
-    if (!error && data) {
-      setStaff(data);
+    try {
+      let uid = 'dev-admin';
+      if (window.liff?.isLoggedIn()) {
+        const profile = await window.liff.getProfile();
+        uid = profile.userId;
+      }
+
+      const response = await fetch('/api/staff', {
+        headers: { 'x-line-uid': uid }
+      });
+      const data = await response.json();
+      
+      if (response.ok) {
+        setStaff(data);
+      } else {
+        console.error(data.error);
+      }
+    } catch (err) {
+      console.error(err);
     }
     setIsLoading(false);
   };
