@@ -3,12 +3,11 @@ import LiffLogin from './components/LiffLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import TeacherDashboard from './pages/TeacherDashboard';
 import ParentDashboard from './pages/ParentDashboard';
+import RepairDashboard from './pages/RepairDashboard';
 import { translations } from './i18n';
 import liff from '@line/liff';
-import { supabase } from './supabaseClient';
 
 export const AppContext = createContext();
-
 export const useApp = () => useContext(AppContext);
 
 const LIFF_ID = '2011376584-Ia2rhpXU';
@@ -18,6 +17,7 @@ function App() {
   const [userRole, setUserRole] = useState(null); // 'admin', 'teacher', 'parent'
   const [lang, setLang] = useState('zh');
   const [isDark, setIsDark] = useState(false);
+  const [currentTab, setCurrentTab] = useState('home'); // 'home', 'repairs', 'profile'
   
   const [liffProfile, setLiffProfile] = useState(null);
   const [isLiffInit, setIsLiffInit] = useState(false);
@@ -36,7 +36,6 @@ function App() {
     }).catch(err => console.error('LIFF init failed', err));
   }, []);
 
-  // 根據 LINE UID 檢查身分 (已升級為 API 安全驗證)
   const checkUserRole = async (lineUid) => {
     try {
       const response = await fetch('/api/auth', {
@@ -44,14 +43,11 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ line_uid: lineUid })
       });
-      
       const data = await response.json();
-      
       if (response.ok && data.role) {
         setUserRole(data.role);
         setIsLoggedIn(true);
       }
-      // TODO: 處理無權限或家長身分
     } catch (err) {
       console.error('API 驗證失敗', err);
     }
@@ -65,7 +61,7 @@ function App() {
   const handleLogout = () => {
     setUserRole(null);
     setIsLoggedIn(false);
-    // 如果是真實 LINE 登入，也可以選擇呼叫 liff.logout()
+    setCurrentTab('home');
   };
 
   const toggleTheme = () => setIsDark(!isDark);
@@ -73,49 +69,95 @@ function App() {
 
   const contextValue = { lang, isDark, t, handleLogout, liffProfile };
 
+  // 全域背景使用灰色，讓白色卡片突顯
   return (
     <AppContext.Provider value={contextValue}>
-      <div className={`min-h-screen flex flex-col ${isDark ? 'dark bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-800'}`}>
-        {isLoggedIn && (
-          <header className={`shadow px-4 py-3 flex justify-between items-center sticky top-0 z-10 ${isDark ? 'bg-gray-800 border-b border-gray-700' : 'bg-white'}`}>
-            <div className="flex items-center gap-3">
-              <button 
-                onClick={handleLogout}
-                className={`p-2 rounded-full transition-colors flex items-center justify-center ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'}`}
-                title={t.home}
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-              </button>
-              <h1 className="text-xl font-bold">{t.appTitle}</h1>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              {liffProfile && (
-                <img src={liffProfile.pictureUrl} alt="profile" className="w-6 h-6 rounded-full" />
-              )}
-              <span className={`text-xs px-2 py-1 rounded-full ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'}`}>
-                {t[userRole]}
-              </span>
-              <button onClick={toggleLang} className={`font-bold px-2 py-1 rounded ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}>
-                {lang === 'zh' ? 'EN' : 'ZH'}
-              </button>
-              <button onClick={toggleTheme} className={`p-1.5 rounded-full ${isDark ? 'hover:bg-gray-700 text-yellow-400' : 'hover:bg-gray-200 text-gray-600'}`}>
-                {isDark ? (
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" /></svg>
-                ) : (
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" /></svg>
-                )}
-              </button>
-            </div>
-          </header>
-        )}
+      <div className={`min-h-[100dvh] flex flex-col ${isDark ? 'dark bg-gray-900 text-gray-100' : 'bg-slate-50 text-gray-800'}`}>
         
-        <main className="flex-1 w-full max-w-md mx-auto p-4">
-          {!isLoggedIn && <LiffLogin onLogin={handleLogin} toggleLang={toggleLang} toggleTheme={toggleTheme} lang={lang} isDark={isDark} t={t} liffProfile={liffProfile} isLiffInit={isLiffInit} />}
-          {userRole === 'admin' && <AdminDashboard />}
-          {userRole === 'teacher' && <TeacherDashboard />}
-          {userRole === 'parent' && <ParentDashboard />}
+        {/* 主要內容區塊，保留底部 pb-20 以免被 Navbar 遮擋 */}
+        <main className={`flex-1 w-full max-w-md mx-auto ${isLoggedIn ? 'pb-24 pt-4 px-4' : 'p-0'}`}>
+          {!isLoggedIn && (
+            <LiffLogin onLogin={handleLogin} toggleLang={toggleLang} toggleTheme={toggleTheme} lang={lang} isDark={isDark} t={t} liffProfile={liffProfile} isLiffInit={isLiffInit} />
+          )}
+          
+          {isLoggedIn && currentTab === 'home' && (
+            <div className="animate-fade-in">
+              <div className="flex justify-between items-center mb-6">
+                <h1 className="text-2xl font-extrabold text-gray-900">{t.appTitle}</h1>
+                {liffProfile && <img src={liffProfile.pictureUrl} alt="profile" className="w-10 h-10 rounded-full shadow-sm" />}
+              </div>
+              {userRole === 'admin' && <AdminDashboard />}
+              {userRole === 'teacher' && <TeacherDashboard />}
+              {userRole === 'parent' && <ParentDashboard />}
+            </div>
+          )}
+
+          {isLoggedIn && currentTab === 'repairs' && (
+             <div className="animate-fade-in">
+               <RepairDashboard />
+             </div>
+          )}
+
+          {isLoggedIn && currentTab === 'profile' && (
+             <div className="animate-fade-in space-y-6">
+               <h2 className="text-2xl font-extrabold text-gray-900 mb-6">個人設定</h2>
+               
+               <div className="bg-white rounded-2xl p-6 shadow-sm text-center">
+                 {liffProfile ? (
+                   <>
+                    <img src={liffProfile.pictureUrl} className="w-20 h-20 rounded-full mx-auto mb-3 shadow-md" />
+                    <h3 className="font-bold text-lg">{liffProfile.displayName}</h3>
+                   </>
+                 ) : (
+                   <div className="w-20 h-20 rounded-full bg-gray-200 mx-auto mb-3 flex items-center justify-center text-gray-500">Demo</div>
+                 )}
+                 <p className="text-sm text-gray-500 mt-1">權限群組: {t[userRole]}</p>
+               </div>
+
+               <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
+                 <button onClick={toggleLang} className="w-full text-left p-4 rounded-xl hover:bg-gray-50 active:scale-[0.98] transition-all flex justify-between font-bold">
+                   <span>切換語系 (Language)</span>
+                   <span className="text-blue-500">{lang === 'zh' ? '中文' : 'English'}</span>
+                 </button>
+                 <button onClick={toggleTheme} className="w-full text-left p-4 rounded-xl hover:bg-gray-50 active:scale-[0.98] transition-all flex justify-between font-bold">
+                   <span>深色模式 (Dark Mode)</span>
+                   <span className="text-blue-500">{isDark ? '開啟' : '關閉'}</span>
+                 </button>
+               </div>
+
+               <button onClick={handleLogout} className="w-full py-4 bg-red-100 text-red-600 font-bold rounded-2xl shadow-sm active:scale-[0.98] transition-all">
+                 登出系統
+               </button>
+             </div>
+          )}
         </main>
+
+        {/* 底部導覽列 (App-like Bottom Tab Bar) */}
+        {isLoggedIn && (
+          <nav className={`fixed bottom-0 w-full max-w-md left-1/2 -translate-x-1/2 flex justify-around items-center h-16 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] rounded-t-2xl px-2 z-50 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <button 
+              onClick={() => setCurrentTab('home')}
+              className={`flex flex-col items-center justify-center w-full h-full space-y-1 active:scale-95 transition-transform ${currentTab === 'home' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              <svg className="w-6 h-6" fill={currentTab === 'home' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+              <span className="text-[10px] font-bold">首頁</span>
+            </button>
+            <button 
+              onClick={() => setCurrentTab('repairs')}
+              className={`flex flex-col items-center justify-center w-full h-full space-y-1 active:scale-95 transition-transform ${currentTab === 'repairs' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              <svg className="w-6 h-6" fill={currentTab === 'repairs' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              <span className="text-[10px] font-bold">報修</span>
+            </button>
+            <button 
+              onClick={() => setCurrentTab('profile')}
+              className={`flex flex-col items-center justify-center w-full h-full space-y-1 active:scale-95 transition-transform ${currentTab === 'profile' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              <svg className="w-6 h-6" fill={currentTab === 'profile' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+              <span className="text-[10px] font-bold">個人</span>
+            </button>
+          </nav>
+        )}
       </div>
     </AppContext.Provider>
   );
