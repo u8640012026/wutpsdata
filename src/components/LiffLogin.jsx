@@ -17,15 +17,18 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
     setIsBinding(true);
     
     try {
-      // 簡單的 Prototype 邏輯：直接將此信箱寫入或更新至 staff 資料表
-      const { error } = await supabase.from('staff').upsert({
-        email: bindEmail,
-        name: liffProfile.displayName,
-        title: bindEmail.includes('u864001') ? '行政' : '導師', // 根據信箱簡單判斷權限
-        line_uid: liffProfile.userId
-      }, { onConflict: 'email' });
-
-      if (error) throw error;
+      const response = await fetch('/api/bind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: bindEmail,
+          displayName: liffProfile.displayName,
+          userId: liffProfile.userId
+        })
+      });
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '未知的錯誤');
       
       alert('綁定成功！請重新整理畫面。');
       window.location.reload();

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Timeline from '../components/Timeline';
 import { useApp } from '../App';
 import * as XLSX from 'xlsx';
+import liff from '@line/liff';
 import { supabase } from '../supabaseClient';
 
 const mockEvents = [
@@ -56,13 +57,19 @@ export default function AdminDashboard() {
           throw new Error('找不到有效的學生資料，請確認 Excel 包含「學號」與「姓名」欄位。');
         }
 
-        const { error } = await supabase
-          .from('students')
-          .upsert(formattedData, { onConflict: 'student_id' });
+        const response = await fetch('/api/students', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            line_uid: liff.isLoggedIn() ? (await liff.getProfile()).userId : 'dev-admin',
+            studentsData: formattedData
+          })
+        });
 
-        if (error) throw error;
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || '未知的錯誤');
         
-        setUploadStatus(`✅ 成功匯入 ${formattedData.length} 筆學生資料！`);
+        setUploadStatus(`✅ 成功匯入 ${result.count} 筆學生資料！ (並已寫入安全日誌)`);
       } catch (err) {
         console.error(err);
         setUploadStatus(`❌ 上傳失敗: ${err.message}`);

@@ -36,19 +36,24 @@ function App() {
     }).catch(err => console.error('LIFF init failed', err));
   }, []);
 
-  // 根據 LINE UID 檢查身分
+  // 根據 LINE UID 檢查身分 (已升級為 API 安全驗證)
   const checkUserRole = async (lineUid) => {
     try {
-      // 檢查是否為教職員
-      const { data: staffData } = await supabase.from('staff').select('*').eq('line_uid', lineUid).single();
-      if (staffData) {
-        setUserRole(staffData.title === '行政' || staffData.email.includes('u864001') ? 'admin' : 'teacher');
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line_uid: lineUid })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.role) {
+        setUserRole(data.role);
         setIsLoggedIn(true);
-        return;
       }
-      // TODO: 檢查家長 (students table)
+      // TODO: 處理無權限或家長身分
     } catch (err) {
-      console.error(err);
+      console.error('API 驗證失敗', err);
     }
   };
 
