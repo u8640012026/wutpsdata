@@ -3,18 +3,16 @@ import { useApp } from '../App';
 import liff from '@line/liff';
 
 export default function StudentList() {
-  const { isDark } = useApp();
+  const { isDark, staffData } = useApp();
   const [students, setStudents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // 篩選與顯示狀態
-  const [selectedGrade, setSelectedGrade] = useState('all');
-  const [selectedClass, setSelectedClass] = useState('all');
-  const [showHomeschooled, setShowHomeschooled] = useState(false);
-  
-  // 展開的學生與頁籤
-  const [expandedStudent, setExpandedStudent] = useState(null);
-  const [activeTab, setActiveTab] = useState('basic'); // basic, family, indigenous, english, status, funding, other
+  const roleTags = staffData?.role_tags || '';
+  const isAdmin = ['0', '1', '2', '3', '20', '30', '40', '50'].some(r => roleTags.includes(r));
+  const isHomeroom = roleTags.includes('4') && !isAdmin;
+
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [activeTab, setActiveTab] = useState('basic');
 
   useEffect(() => {
     fetchStudents();
@@ -36,6 +34,13 @@ export default function StudentList() {
       
       if (response.ok) {
         setStudents(data);
+        
+        // 若為導師，嘗試自動展開他的班級 (這裡假設以第一筆學生的班級為他的班級，因為我們沒有他的班級資料)
+        // 實務上應從 staffData 取得班級
+        if (isHomeroom && data.length > 0) {
+          const firstClass = `${data[0].grade}${data[0].class_name}`;
+          setSelectedClass(firstClass);
+        }
       } else {
         console.error(data.error);
       }
@@ -45,177 +50,149 @@ export default function StudentList() {
     setIsLoading(false);
   };
 
-  // 取得不重複的年級與班級清單供下拉選單使用
-  const grades = [...new Set(students.map(s => s.grade))].filter(Boolean).sort();
-  const classes = [...new Set(students.filter(s => selectedGrade === 'all' || s.grade === selectedGrade).map(s => s.class_name))].filter(Boolean).sort();
+  const uniqueClasses = [...new Set(students.map(s => `${s.grade}${s.class_name}`))]
+    .filter(c => c && c.length >= 2)
+    .sort();
 
-  // 過濾學生名單
-  const filteredStudents = students.filter(s => {
-    if (selectedGrade !== 'all' && s.grade !== selectedGrade) return false;
-    if (selectedClass !== 'all' && s.class_name !== selectedClass) return false;
-    
-    const isHomeschooled = s.enroll_type?.includes('自學') || s.enroll_type?.includes('在家');
-    if (!showHomeschooled && isHomeschooled) return false;
-    
-    return true;
-  });
+  const filteredStudents = students.filter(s => `${s.grade}${s.class_name}` === selectedClass);
 
   const cardBg = isDark ? 'bg-slate-800' : 'bg-white';
   const textColor = isDark ? 'text-gray-100' : 'text-gray-800';
+  const tableHeaderBg = isDark ? 'bg-slate-700' : 'bg-emerald-100';
+  const stickyLeftBg = isDark ? 'bg-slate-800' : 'bg-white';
+  const borderColor = isDark ? 'border-slate-700' : 'border-emerald-200';
 
-  const renderStudentDetails = (student) => {
-    const details = student.details || {};
-    
-    // 預先分類 Excel 來的標籤
-    const familyKeys = Object.keys(details).filter(k => k.includes('親') || k.includes('電話') || k.includes('地址') || k.includes('監護人') || k.includes('緊急'));
-    const indigKeys = Object.keys(details).filter(k => k.includes('族語') || k.includes('原住民') || k.includes('母語'));
-    const englishKeys = Object.keys(details).filter(k => k.includes('英') || k.includes('外語'));
-    const statusKeys = Object.keys(details).filter(k => k.includes('身分') || k.includes('特教') || k.includes('輔導') || k.includes('障礙') || k.includes('低收'));
-    const fundingKeys = Object.keys(details).filter(k => k.includes('費') || k.includes('補助') || k.includes('獎學金'));
-    
-    const usedKeys = new Set([...familyKeys, ...indigKeys, ...englishKeys, ...statusKeys, ...fundingKeys]);
-    const otherKeys = Object.keys(details).filter(k => !usedKeys.has(k));
+  const tabs = [
+    { id: 'basic', label: '基本資料', cols: ['性別', '身分證字號', '生日', '就學狀態'] },
+    { id: 'family', label: '家庭資料', cols: ['父親', '父親電話', '母親', '母親電話', '戶籍地址', '通訊地址'] },
+    { id: 'health', label: '健康頁', cols: ['緊急連絡人', '緊急聯絡人電話', '特殊病況', '緊急送醫處'] },
+    { id: 'indigenous', label: '族語頁', cols: ['族名', '族別', '語系', '族語認證', '新增族語註記'] },
+    { id: 'english', label: '英語頁', cols: ['英語名', '新增英語註記'] },
+    { id: 'status', label: '身分欄位頁', cols: ['中低軍公教', '特教生', '輔導個案'] },
+    { id: 'funding', label: '經費頁', cols: ['午餐費', '代辦費', '平安保險費', '教科書費', '家長會費', '運動服費', '獎助學金'] }
+  ];
 
-    const renderKeyValue = (keys) => {
-      if (keys.length === 0) return <p className="text-gray-400 text-sm italic">無相關資料</p>;
-      return (
-        <div className="grid grid-cols-1 gap-2">
-          {keys.map(k => (
-            <div key={k} className={`flex justify-between items-center p-2 rounded ${isDark ? 'bg-slate-700' : 'bg-stone-50'}`}>
-              <span className="text-sm font-bold text-gray-500">{k}</span>
-              <span className={`text-sm ${textColor}`}>{details[k]}</span>
-            </div>
-          ))}
-        </div>
-      );
-    };
+  const currentCols = tabs.find(t => t.id === activeTab)?.cols || [];
 
+  if (isLoading) {
+    return <p className="text-gray-500 text-center py-8 font-bold animate-pulse">載入學生資料中...</p>;
+  }
+
+  // 顯示班級選擇 (若為行政或尚未選擇)
+  if (!selectedClass) {
     return (
-      <div className={`mt-3 border-t pt-3 ${isDark ? 'border-slate-600' : 'border-gray-200'}`}>
-        {/* 頁籤選單 */}
-        <div className="flex overflow-x-auto space-x-2 pb-2 mb-3 scrollbar-hide">
-          {['basic:基本', 'family:家庭', 'indigenous:族語', 'english:英語', 'status:身分', 'funding:經費', 'other:其他'].map(tab => {
-            const [id, label] = tab.split(':');
-            return (
-              <button
-                key={id}
-                onClick={() => setActiveTab(id)}
-                className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
-                  activeTab === id 
-                    ? 'bg-emerald-500 text-white shadow-sm' 
-                    : isDark ? 'bg-slate-700 text-gray-400' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* 頁籤內容 */}
-        <div className="animate-fade-in">
-          {activeTab === 'basic' && (
-             <div className="grid grid-cols-1 gap-2">
-               <div className={`flex justify-between p-2 rounded ${isDark ? 'bg-slate-700' : 'bg-stone-50'}`}><span className="text-sm font-bold text-gray-500">學號</span><span className={`text-sm ${textColor}`}>{student.student_id}</span></div>
-               <div className={`flex justify-between p-2 rounded ${isDark ? 'bg-slate-700' : 'bg-stone-50'}`}><span className="text-sm font-bold text-gray-500">年級班級</span><span className={`text-sm ${textColor}`}>{student.grade} 年 {student.class_name} 班</span></div>
-               <div className={`flex justify-between p-2 rounded ${isDark ? 'bg-slate-700' : 'bg-stone-50'}`}><span className="text-sm font-bold text-gray-500">座號</span><span className={`text-sm ${textColor}`}>{student.seat_number}</span></div>
-               <div className={`flex justify-between p-2 rounded ${isDark ? 'bg-slate-700' : 'bg-stone-50'}`}><span className="text-sm font-bold text-gray-500">就學狀態</span><span className={`text-sm ${textColor}`}>{student.enroll_type}</span></div>
-             </div>
-          )}
-          {activeTab === 'family' && renderKeyValue(familyKeys)}
-          {activeTab === 'indigenous' && renderKeyValue(indigKeys)}
-          {activeTab === 'english' && renderKeyValue(englishKeys)}
-          {activeTab === 'status' && renderKeyValue(statusKeys)}
-          {activeTab === 'funding' && renderKeyValue(fundingKeys)}
-          {activeTab === 'other' && renderKeyValue(otherKeys)}
+      <div className={`rounded-xl shadow-sm p-6 ${cardBg}`}>
+        <h3 className={`text-xl font-bold mb-6 ${textColor}`}>🏫 請選擇要檢視的班級</h3>
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+          {uniqueClasses.map(cls => (
+            <button
+              key={cls}
+              onClick={() => setSelectedClass(cls)}
+              className="py-4 px-2 rounded-full font-extrabold text-emerald-700 bg-emerald-50 border-2 border-emerald-200 hover:bg-emerald-100 hover:scale-105 active:scale-95 transition-all shadow-sm text-lg"
+            >
+              {cls}班
+            </button>
+          ))}
         </div>
       </div>
     );
-  };
+  }
 
   return (
-    <div className={`rounded-xl shadow-sm p-4 ${cardBg}`}>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className={`text-lg font-bold ${textColor}`}>🧑‍🎓 全校學生總覽</h3>
-        <span className="text-xs font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full">
-          共 {filteredStudents.length} 筆
+    <div className={`rounded-xl shadow-sm flex flex-col h-[70vh] ${cardBg} border ${borderColor}`}>
+      
+      {/* 頂部標題列與返回按鈕 */}
+      <div className="flex justify-between items-center p-3 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-3">
+          {(isAdmin || !isHomeroom) && (
+            <button 
+              onClick={() => setSelectedClass(null)}
+              className="p-1.5 rounded-full bg-gray-100 dark:bg-slate-700 hover:bg-gray-200"
+            >
+              <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+          <h3 className={`text-lg font-bold ${textColor}`}>🧑‍🎓 {selectedClass}班 學生名冊</h3>
+        </div>
+        <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-full">
+          共 {filteredStudents.length} 人
         </span>
       </div>
 
-      {/* 控制列 */}
-      <div className="space-y-3 mb-4">
-        <div className="flex gap-2">
-          <select 
-            value={selectedGrade} 
-            onChange={(e) => { setSelectedGrade(e.target.value); setSelectedClass('all'); }}
-            className={`flex-1 text-sm p-2 rounded-lg outline-none font-bold ${isDark ? 'bg-slate-700 text-white' : 'bg-stone-100 text-gray-800'}`}
-          >
-            <option value="all">所有年級</option>
-            {grades.map(g => <option key={g} value={g}>{g} 年級</option>)}
-          </select>
-          
-          <select 
-            value={selectedClass} 
-            onChange={(e) => setSelectedClass(e.target.value)}
-            className={`flex-1 text-sm p-2 rounded-lg outline-none font-bold ${isDark ? 'bg-slate-700 text-white' : 'bg-stone-100 text-gray-800'}`}
-          >
-            <option value="all">所有班級</option>
-            {classes.map(c => <option key={c} value={c}>{c} 班</option>)}
-          </select>
-        </div>
+      {/* Excel-like Data Table 區塊 */}
+      <div className="flex-1 overflow-auto relative scrollbar-hide">
+        <table className="w-full text-sm text-left whitespace-nowrap">
+          <thead className={`sticky top-0 z-20 ${tableHeaderBg} shadow-sm`}>
+            <tr>
+              {/* 凍結的左側第一欄 */}
+              <th className={`sticky left-0 z-30 p-3 font-extrabold text-emerald-800 dark:text-emerald-300 border-r border-b ${borderColor} ${tableHeaderBg}`}>
+                座號 - 姓名
+              </th>
+              {/* 動態展開的資料欄位 */}
+              {currentCols.map(col => (
+                <th key={col} className={`p-3 font-bold text-gray-700 dark:text-gray-200 border-r border-b ${borderColor}`}>
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filteredStudents.map((student, idx) => {
+              const details = student.details || {};
+              const isEven = idx % 2 === 0;
+              const rowBg = isDark ? (isEven ? 'bg-slate-800' : 'bg-slate-800/80') : (isEven ? 'bg-white' : 'bg-emerald-50/30');
 
-        <label className="flex items-center gap-2 cursor-pointer p-2 bg-stone-100 dark:bg-slate-700 rounded-lg">
-          <input 
-            type="checkbox" 
-            checked={showHomeschooled} 
-            onChange={(e) => setShowHomeschooled(e.target.checked)} 
-            className="w-4 h-4 text-emerald-600 rounded"
-          />
-          <span className={`text-xs font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>顯示已隱藏的「在家自學」學生</span>
-        </label>
+              return (
+                <tr key={student.student_id} className={`border-b ${borderColor} ${rowBg} hover:bg-yellow-50 dark:hover:bg-slate-700 transition-colors`}>
+                  {/* 凍結的左側儲存格 */}
+                  <td className={`sticky left-0 z-10 p-3 border-r ${borderColor} ${stickyLeftBg} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">
+                        {student.seat_number}
+                      </span>
+                      <span className={`font-bold ${textColor}`}>{student.name}</span>
+                    </div>
+                  </td>
+                  
+                  {/* 動態資料儲存格 */}
+                  {currentCols.map(col => {
+                    // 特殊處理欄位
+                    let val = details[col] || details[col.replace('頁', '')] || '';
+                    if (col === '就學狀態') val = student.enroll_type || val;
+                    if (col === '性別' && !val) val = details['姓別'] || ''; // 容錯
+                    
+                    return (
+                      <td key={col} className={`p-3 border-r ${borderColor} text-gray-600 dark:text-gray-300 max-w-[200px] truncate`}>
+                        {val || '-'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
-      {/* 學生列表 */}
-      {isLoading ? (
-        <p className="text-gray-500 text-center py-8 font-bold animate-pulse">載入學生資料中...</p>
-      ) : filteredStudents.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">找不到符合條件的學生</p>
-      ) : (
-        <div className="space-y-3">
-          {filteredStudents.map(student => (
-            <div key={student.student_id} className={`border rounded-xl overflow-hidden transition-colors ${isDark ? 'border-slate-700 bg-slate-900' : 'border-stone-200 bg-white'}`}>
-              <button 
-                onClick={() => {
-                  setExpandedStudent(expandedStudent === student.student_id ? null : student.student_id);
-                  setActiveTab('basic');
-                }}
-                className={`w-full flex items-center justify-between p-3 active:scale-[0.99] transition-transform ${isDark ? 'hover:bg-slate-800' : 'hover:bg-stone-50'}`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-black text-lg">
-                    {student.seat_number}
-                  </div>
-                  <div className="text-left">
-                    <h4 className={`font-extrabold ${textColor}`}>{student.name}</h4>
-                    <p className="text-xs text-gray-500">{student.grade}年{student.class_name}班 / 學號: {student.student_id}</p>
-                  </div>
-                </div>
-                <div>
-                  <svg className={`w-5 h-5 text-gray-400 transition-transform ${expandedStudent === student.student_id ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-              </button>
-
-              {expandedStudent === student.student_id && (
-                <div className="px-3 pb-3">
-                  {renderStudentDetails(student)}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Excel 底部切換頁籤 (Bottom Tabs) */}
+      <div className={`flex overflow-x-auto p-2 gap-1 border-t ${borderColor} bg-gray-100 dark:bg-slate-900 scrollbar-hide`}>
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`whitespace-nowrap px-4 py-2 rounded-t-lg font-bold text-sm transition-all border border-b-0 ${
+              activeTab === tab.id 
+                ? `${cardBg} text-emerald-600 ${borderColor} shadow-[0_-2px_5px_rgba(0,0,0,0.05)] border-b-transparent z-10` 
+                : 'bg-gray-200 dark:bg-slate-800 text-gray-500 border-transparent hover:bg-gray-300 dark:hover:bg-slate-700'
+            }`}
+            style={{ marginBottom: activeTab === tab.id ? '-1px' : '0' }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
