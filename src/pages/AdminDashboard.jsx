@@ -16,7 +16,7 @@ export default function AdminDashboard() {
   const [currentView, setCurrentView] = useState('menu');
   const [isEditing, setIsEditing] = useState(false);
   const [events, setEvents] = useState(mockEvents);
-  const { isDark, t } = useApp();
+  const { isDark, t, staffData } = useApp();
   
   const [uploadStatus, setUploadStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);

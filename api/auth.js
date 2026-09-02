@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       return res.status(401).json({ role: null, error: 'User not found' });
     }
 
-    const role = (staffData.title === '行政' || staffData.email.includes('u864001')) ? 'admin' : 'teacher';
+    const role = (staffData.title === '行政' || staffData.email?.includes('u864001')) ? 'admin' : 'teacher';
     
     return res.status(200).json({ role, staffData });
   } catch (err) {
