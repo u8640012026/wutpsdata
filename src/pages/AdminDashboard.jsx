@@ -6,6 +6,7 @@ import liff from '@line/liff';
 import { supabase } from '../supabaseClient';
 import RepairDashboard from './RepairDashboard';
 import StaffList from '../components/StaffList';
+import StudentList from '../components/StudentList';
 
 const mockEvents = [
   { date: '2023-11-01', title: '全校運動會 / Sports Day', description: '請全體師生準時於操場集合 / Gather at the field' },
@@ -292,20 +293,13 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-slate-700 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}
         >
           <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           {t.goBack}
         </button>
 
-        <div>
-          <h2 className={`text-2xl font-bold ${textColor}`}>{t.rosterTitle}</h2>
-          <p className={`text-sm ${subTextColor}`}>{t.rosterDesc}</p>
-        </div>
-
-        <section className={`rounded-xl shadow-sm p-4 text-center py-8 ${cardBg}`}>
-          <p className={subTextColor}>(此處為全校學生名冊列表，為簡化 Demo 暫時省略)</p>
-        </section>
+        <StudentList />
       </div>
     );
   }
