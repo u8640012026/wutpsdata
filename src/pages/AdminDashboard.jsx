@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import liff from '@line/liff';
 import { supabase } from '../supabaseClient';
 import RepairDashboard from './RepairDashboard';
+import StaffList from '../components/StaffList';
 
 const mockEvents = [
   { date: '2023-11-01', title: '全校運動會 / Sports Day', description: '請全體師生準時於操場集合 / Gather at the field' },
@@ -309,6 +310,21 @@ export default function AdminDashboard() {
     );
   }
 
+  if (currentView === 'staff_list') {
+    return (
+      <div className="space-y-6 pb-8">
+        <button 
+          onClick={() => setCurrentView('menu')}
+          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+        >
+          <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          {t.goBack}
+        </button>
+        <StaffList />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-8">
       <div>
@@ -340,12 +356,23 @@ export default function AdminDashboard() {
         </button>
 
         <button 
+          onClick={() => setCurrentView('staff_list')}
+          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:shadow-md'}`}
+        >
+          <div className="text-left">
+            <h3 className={`text-lg font-bold text-purple-600`}>👨‍🏫 教職員名冊與權限管理</h3>
+            <p className={`text-sm ${subTextColor}`}>查看全校教職員、LINE 綁定狀態與權限標籤</p>
+          </div>
+          <svg className={`w-6 h-6 text-purple-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+        </button>
+
+        <button 
           onClick={() => setCurrentView('import')}
           className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-gray-800 hover:bg-gray-700 border border-blue-900' : 'bg-white hover:shadow-md border border-blue-100'}`}
         >
           <div className="text-left">
-            <h3 className={`text-lg font-bold text-blue-500`}>匯入學生資料</h3>
-            <p className={`text-sm ${subTextColor}`}>以 Excel 批次上傳全校名單</p>
+            <h3 className={`text-lg font-bold text-blue-500`}>🗄️ 系統資料庫匯入區</h3>
+            <p className={`text-sm ${subTextColor}`}>以 Excel 批次上傳全校學生與教職員名單</p>
           </div>
           <svg className={`w-6 h-6 text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
         </button>
