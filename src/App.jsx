@@ -1,21 +1,56 @@
-import React, { useState, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, useContext } from 'react';
 import LiffLogin from './components/LiffLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import TeacherDashboard from './pages/TeacherDashboard';
 import ParentDashboard from './pages/ParentDashboard';
 import { translations } from './i18n';
+import liff from '@line/liff';
+import { supabase } from './supabaseClient';
 
 export const AppContext = createContext();
 
 export const useApp = () => useContext(AppContext);
+
+const LIFF_ID = '2011376584-Ia2rhpXU';
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userRole, setUserRole] = useState(null); // 'admin', 'teacher', 'parent'
   const [lang, setLang] = useState('zh');
   const [isDark, setIsDark] = useState(false);
+  
+  const [liffProfile, setLiffProfile] = useState(null);
+  const [isLiffInit, setIsLiffInit] = useState(false);
 
   const t = translations[lang];
+
+  useEffect(() => {
+    liff.init({ liffId: LIFF_ID }).then(() => {
+      setIsLiffInit(true);
+      if (liff.isLoggedIn()) {
+        liff.getProfile().then(profile => {
+          setLiffProfile(profile);
+          checkUserRole(profile.userId);
+        });
+      }
+    }).catch(err => console.error('LIFF init failed', err));
+  }, []);
+
+  // 根據 LINE UID 檢查身分
+  const checkUserRole = async (lineUid) => {
+    try {
+      // 檢查是否為教職員
+      const { data: staffData } = await supabase.from('staff').select('*').eq('line_uid', lineUid).single();
+      if (staffData) {
+        setUserRole(staffData.title === '行政' || staffData.email.includes('u864001') ? 'admin' : 'teacher');
+        setIsLoggedIn(true);
+        return;
+      }
+      // TODO: 檢查家長 (students table)
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const handleLogin = (role) => {
     setUserRole(role);
@@ -25,12 +60,13 @@ function App() {
   const handleLogout = () => {
     setUserRole(null);
     setIsLoggedIn(false);
+    // 如果是真實 LINE 登入，也可以選擇呼叫 liff.logout()
   };
 
   const toggleTheme = () => setIsDark(!isDark);
   const toggleLang = () => setLang(lang === 'zh' ? 'en' : 'zh');
 
-  const contextValue = { lang, isDark, t, handleLogout };
+  const contextValue = { lang, isDark, t, handleLogout, liffProfile };
 
   return (
     <AppContext.Provider value={contextValue}>
@@ -49,6 +85,9 @@ function App() {
             </div>
             
             <div className="flex items-center gap-3">
+              {liffProfile && (
+                <img src={liffProfile.pictureUrl} alt="profile" className="w-6 h-6 rounded-full" />
+              )}
               <span className={`text-xs px-2 py-1 rounded-full ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'}`}>
                 {t[userRole]}
               </span>
@@ -67,7 +106,7 @@ function App() {
         )}
         
         <main className="flex-1 w-full max-w-md mx-auto p-4">
-          {!isLoggedIn && <LiffLogin onLogin={handleLogin} toggleLang={toggleLang} toggleTheme={toggleTheme} lang={lang} isDark={isDark} t={t} />}
+          {!isLoggedIn && <LiffLogin onLogin={handleLogin} toggleLang={toggleLang} toggleTheme={toggleTheme} lang={lang} isDark={isDark} t={t} liffProfile={liffProfile} isLiffInit={isLiffInit} />}
           {userRole === 'admin' && <AdminDashboard />}
           {userRole === 'teacher' && <TeacherDashboard />}
           {userRole === 'parent' && <ParentDashboard />}
