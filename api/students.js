@@ -29,10 +29,29 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Forbidden: 權限不足' });
     }
 
-    // 2. 寫入學生資料
+    // 2. 選擇性更新 (Selective Upsert) 邏輯：
+    // 取出已存在的學生，確保老師們在 `details` 裡寫的自訂欄位(如特教筆記)不會被 Excel 覆蓋
+    const studentIds = studentsData.map(s => s.student_id);
+    const { data: existingStudents } = await supabase.from('students').select('student_id, details').in('student_id', studentIds);
+    
+    const existingMap = {};
+    if (existingStudents) {
+      existingStudents.forEach(s => {
+        existingMap[s.student_id] = s.details || {};
+      });
+    }
+
+    const finalData = studentsData.map(s => {
+      const oldDetails = existingMap[s.student_id] || {};
+      // Excel 的欄位會更新，但老師建立的自訂欄位 (Excel 中不存在的 key) 會被保留
+      const mergedDetails = { ...oldDetails, ...s.details }; 
+      return { ...s, details: mergedDetails };
+    });
+
+    // 3. 寫入學生資料
     const { error } = await supabase
       .from('students')
-      .upsert(studentsData, { onConflict: 'student_id' });
+      .upsert(finalData, { onConflict: 'student_id' });
 
     if (error) throw error;
     

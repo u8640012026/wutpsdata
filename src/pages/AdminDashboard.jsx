@@ -82,6 +82,62 @@ export default function AdminDashboard() {
     reader.readAsBinaryString(file);
   };
 
+  const handleStaffUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setIsLoading(true);
+    setUploadStatus('讀取教職員 Excel 檔案中...');
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        setUploadStatus(`檔案讀取成功，共 ${data.length} 筆資料。開始寫入資料庫...`);
+
+        const formattedData = data.map(row => ({
+          name: row['姓名'] || row.name || '未知',
+          department: row['處室'] || row.department || '',
+          title: row['職務'] || row.title || '',
+          class_assigned: row['任教班級'] || row.class_assigned || '',
+          email: String(row['電子信箱'] || row.email || '').trim(),
+          role_tags: String(row['角色標籤'] || row.role_tags || '')
+        })).filter(item => item.email); // 電子信箱為必填主鍵
+
+        if (formattedData.length === 0) {
+          throw new Error('未找到有效資料，請確保包含「電子信箱」欄位');
+        }
+
+        const response = await fetch('/api/staff_import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            line_uid: liff.isLoggedIn() ? (await liff.getProfile()).userId : 'dev-admin',
+            staffData: formattedData
+          })
+        });
+
+        const result = await response.json();
+        if (response.ok) {
+          setUploadStatus(`✅ 成功更新 ${result.count} 筆教職員資料！(原綁定資料已自動保留)`);
+        } else {
+          setUploadStatus(`❌ 錯誤: ${result.error}`);
+        }
+      } catch (err) {
+        setUploadStatus(`❌ 解析失敗: ${err.message}`);
+      } finally {
+        setIsLoading(false);
+        e.target.value = null; // 清空 input
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const textColor = isDark ? 'text-white' : 'text-gray-800';
   const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
   const cardBg = isDark ? 'bg-gray-800' : 'bg-white';
@@ -146,9 +202,9 @@ export default function AdminDashboard() {
             <svg className={`mx-auto h-8 w-8 mb-2 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            <label className="cursor-pointer bg-green-500 rounded text-white text-sm px-3 py-1.5 hover:bg-green-600">
-              選擇 Excel / CSV 檔案
-              <input type="file" className="sr-only" />
+            <label className={`cursor-pointer rounded text-white text-sm px-3 py-1.5 ${isLoading ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600'}`}>
+              {isLoading ? '處理中...' : '選擇 Excel / CSV 檔案'}
+              <input type="file" className="sr-only" accept=".xlsx, .xls, .csv" onChange={handleStaffUpload} disabled={isLoading} />
             </label>
           </div>
         </section>

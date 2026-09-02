@@ -15,6 +15,7 @@ const LIFF_ID = '2011376584-Ia2rhpXU';
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userRole, setUserRole] = useState(null); // 'admin', 'teacher', 'parent'
+  const [staffData, setStaffData] = useState(null);
   const [lang, setLang] = useState('zh');
   const [isDark, setIsDark] = useState(false);
   const [currentTab, setCurrentTab] = useState('home'); // 'home', 'repairs', 'profile'
@@ -46,6 +47,7 @@ function App() {
       const data = await response.json();
       if (response.ok && data.role) {
         setUserRole(data.role);
+        setStaffData(data.staffData || null);
         setIsLoggedIn(true);
       }
     } catch (err) {
@@ -60,6 +62,7 @@ function App() {
 
   const handleLogout = () => {
     setUserRole(null);
+    setStaffData(null);
     setIsLoggedIn(false);
     setCurrentTab('home');
   };
@@ -67,7 +70,7 @@ function App() {
   const toggleTheme = () => setIsDark(!isDark);
   const toggleLang = () => setLang(lang === 'zh' ? 'en' : 'zh');
 
-  const contextValue = { lang, isDark, t, handleLogout, liffProfile };
+  const contextValue = { lang, isDark, t, handleLogout, liffProfile, staffData, userRole };
 
   // 全域背景使用灰色，讓白色卡片突顯
   return (
