@@ -62,7 +62,7 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
       {isLiffInit && !liffProfile && (
         <button 
           onClick={handleLineLogin}
-          className="w-full max-w-xs bg-[#06C755] hover:bg-[#05b34c] text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all mb-8 flex items-center justify-center"
+          className="w-full max-w-xs bg-[#06C755] hover:bg-[#05b34c] text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all mb-4 flex items-center justify-center"
         >
           <svg className="w-6 h-6 mr-2" viewBox="0 0 24 24" fill="currentColor">
             <path d="M24 10.304c0-5.369-5.383-9.738-12-9.738-6.616 0-12 4.369-12 9.738 0 4.814 4.269 8.846 10.036 9.608.391.084.922.258 1.057.592.122.303.079.778.039 1.085l-.171 1.027c-.053.303-.242 1.186 1.039.647 1.281-.54 6.911-4.069 9.428-6.967 1.739-1.907 2.572-4.116 2.572-5.992z"/>
@@ -71,9 +71,24 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
         </button>
       )}
 
+      {/* 為了今天簡報準備的展示入口 */}
+      <div className={`mt-6 w-full max-w-xs p-4 rounded-xl border-2 border-dashed ${isDark ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-gray-50'}`}>
+        <p className="text-sm font-bold text-gray-500 mb-3">🎓 簡報展示專區 (免登入)</p>
+        <button 
+          onClick={() => onLogin('teacher')}
+          className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg shadow transition-all flex items-center justify-center mb-2"
+        >
+          👨‍🏫 體驗導師版 (模擬假資料)
+        </button>
+        <div className="flex gap-2">
+          <button onClick={() => onLogin('admin')} className="flex-1 bg-gray-400 hover:bg-gray-500 text-white text-xs py-2 rounded">行政展示</button>
+          <button onClick={() => onLogin('parent')} className="flex-1 bg-gray-400 hover:bg-gray-500 text-white text-xs py-2 rounded">家長展示</button>
+        </div>
+      </div>
+
       {/* 登入但尚未綁定的畫面 */}
       {liffProfile && (
-        <div className={`w-full max-w-xs p-6 rounded-2xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100 shadow-xl'}`}>
+        <div className={`w-full max-w-xs p-6 rounded-2xl border mt-6 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100 shadow-xl'}`}>
           <img src={liffProfile.pictureUrl} alt="profile" className="w-16 h-16 rounded-full mx-auto mb-3" />
           <h3 className="font-bold mb-1">您好，{liffProfile.displayName}</h3>
           <p className="text-xs text-red-500 mb-4">系統找不到您的權限，請進行綁定</p>
@@ -94,22 +109,6 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
           </button>
         </div>
       )}
-
-      {/* 開發測試用的模擬按鈕 */}
-      <div className={`mt-8 pt-6 border-t w-full max-w-xs ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-        <p className="text-xs text-gray-500 mb-4"> 開發者測試 (略過 LINE 登入)</p>
-        <div className="flex gap-2 justify-center">
-          <button onClick={() => onLogin('admin')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-700 text-blue-400' : 'bg-white hover:bg-blue-50 text-blue-600 shadow-sm'}`}>
-            行政
-          </button>
-          <button onClick={() => onLogin('teacher')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-700 text-green-400' : 'bg-white hover:bg-green-50 text-green-600 shadow-sm'}`}>
-            導師
-          </button>
-          <button onClick={() => onLogin('parent')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-gray-800 hover:bg-gray-700 text-purple-400' : 'bg-white hover:bg-purple-50 text-purple-600 shadow-sm'}`}>
-            家長
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
