@@ -11,7 +11,9 @@ export default function StudentList() {
   const isAdmin = ['0', '1', '2', '3', '20', '30', '40', '50'].some(r => roleTags.includes(r));
   const isHomeroom = roleTags.includes('4') && !isAdmin;
 
-  const [selectedClass, setSelectedClass] = useState(null);
+  const [selectedClasses, setSelectedClasses] = useState([]);
+  const [isViewing, setIsViewing] = useState(false);
+  
   const [activeTab, setActiveTab] = useState('basic');
   const [showHomeschooled, setShowHomeschooled] = useState(false);
 
@@ -40,9 +42,11 @@ export default function StudentList() {
         if (isHomeroom) {
           const myClass = staffData?.details?.['任教班級'];
           if (myClass) {
-            setSelectedClass(myClass);
+            setSelectedClasses([myClass]);
+            setIsViewing(true);
           } else if (data.length > 0) {
-            setSelectedClass(`${data[0].grade}${data[0].class_name}`);
+            setSelectedClasses([`${data[0].grade}${data[0].class_name}`]);
+            setIsViewing(true);
           }
         }
       } else {
@@ -54,10 +58,18 @@ export default function StudentList() {
     setIsLoading(false);
   };
 
+  const toggleClass = (cls) => {
+    if (selectedClasses.includes(cls)) {
+      setSelectedClasses(selectedClasses.filter(c => c !== cls));
+    } else {
+      setSelectedClasses([...selectedClasses, cls]);
+    }
+  };
+
   const filteredStudents = students.filter(s => {
-    if (`${s.grade}${s.class_name}` !== selectedClass) return false;
+    if (!selectedClasses.includes(`${s.grade}${s.class_name}`)) return false;
     
-    // 自學生過濾邏輯
+    // 自學生過濾邏輯：預設不顯示、不列入計算，除非使用者打勾
     const isHomeschooled = s.enroll_type?.includes('自學') || s.enroll_type?.includes('在家');
     if (!showHomeschooled && isHomeschooled) return false;
     
@@ -86,8 +98,8 @@ export default function StudentList() {
     return <p className="text-gray-500 text-center py-8 font-bold animate-pulse">載入學生資料中...</p>;
   }
 
-  // 顯示班級選擇 (若為行政或尚未選擇)
-  if (!selectedClass) {
+  // 顯示班級選擇 (若為行政且尚未進入檢視模式)
+  if (!isViewing) {
     const classGrid = [
       ['一甲', '二甲', '三甲'],
       ['四甲', '五甲', '六甲'],
@@ -96,22 +108,34 @@ export default function StudentList() {
     ];
 
     return (
-      <div className={`rounded-xl shadow-sm p-6 ${cardBg}`}>
-        <h3 className={`text-xl font-bold mb-6 ${textColor}`}>🏫 請選擇要檢視的班級</h3>
-        <div className="flex flex-col gap-6">
+      <div className={`rounded-xl shadow-sm p-6 flex flex-col h-[70vh] ${cardBg}`}>
+        <h3 className={`text-xl font-bold mb-2 ${textColor}`}>🏫 請點選要檢視的班級 (可複選)</h3>
+        <p className="text-sm text-gray-500 mb-6">點擊班級按鈕來選取或取消選取，選取完畢後請按下方的「確定」按鈕。</p>
+        
+        <div className="flex-1 overflow-y-auto space-y-6">
           {classGrid.map((row, rIdx) => (
             <div key={rIdx} className="grid grid-cols-3 gap-4">
               {row.map(cls => {
                 const isJia = cls.includes('甲');
+                const isSelected = selectedClasses.includes(cls);
+                
+                // 動態決定選取與未選取的樣式
+                let btnClass = 'py-4 px-2 rounded-[2rem] font-extrabold text-lg border-2 transition-all hover:scale-105 active:scale-95 shadow-sm ';
+                if (isJia) {
+                  btnClass += isSelected 
+                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-500/50 shadow-lg scale-105'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700 dark:hover:bg-emerald-800/50';
+                } else {
+                  btnClass += isSelected 
+                    ? 'bg-indigo-600 text-white border-indigo-700 shadow-indigo-500/50 shadow-lg scale-105'
+                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700 dark:hover:bg-indigo-800/50';
+                }
+
                 return (
                   <button
                     key={cls}
-                    onClick={() => setSelectedClass(cls)}
-                    className={`py-4 px-2 rounded-[2rem] font-extrabold text-lg border-2 shadow-sm transition-all hover:scale-105 active:scale-95 ${
-                      isJia 
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700 dark:hover:bg-emerald-800/50' 
-                        : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700 dark:hover:bg-indigo-800/50'
-                    }`}
+                    onClick={() => toggleClass(cls)}
+                    className={btnClass}
                   >
                     {cls}
                   </button>
@@ -120,9 +144,28 @@ export default function StudentList() {
             </div>
           ))}
         </div>
+        
+        <div className="pt-4 border-t mt-4 border-gray-200 dark:border-slate-700">
+          <button
+            onClick={() => setIsViewing(true)}
+            disabled={selectedClasses.length === 0}
+            className={`w-full py-4 rounded-xl font-extrabold text-lg transition-all shadow-md active:scale-95 ${
+              selectedClasses.length > 0
+                ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500'
+            }`}
+          >
+            {selectedClasses.length > 0 ? `確定檢視 ${selectedClasses.length} 個班級` : '請先選取班級'}
+          </button>
+        </div>
       </div>
     );
   }
+
+  // 跨班檢視時標題
+  const titleText = selectedClasses.length === 1 
+    ? `${selectedClasses[0]} 學生名冊` 
+    : `跨班學生名冊 (共 ${selectedClasses.length} 班)`;
 
   return (
     <div className={`rounded-xl shadow-sm flex flex-col h-[70vh] ${cardBg} border ${borderColor}`}>
@@ -132,7 +175,7 @@ export default function StudentList() {
         <div className="flex items-center gap-3">
           {(isAdmin || !isHomeroom) && (
             <button 
-              onClick={() => setSelectedClass(null)}
+              onClick={() => setIsViewing(false)}
               className="p-1.5 rounded-full bg-gray-100 dark:bg-slate-700 hover:bg-gray-200"
             >
               <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -140,7 +183,7 @@ export default function StudentList() {
               </svg>
             </button>
           )}
-          <h3 className={`text-lg font-bold ${textColor}`}>🧑‍🎓 {selectedClass} 學生名冊</h3>
+          <h3 className={`text-lg font-bold ${textColor}`}>🧑‍🎓 {titleText}</h3>
         </div>
         
         <div className="flex items-center gap-4">
@@ -166,7 +209,7 @@ export default function StudentList() {
             <tr>
               {/* 凍結的左側第一欄 */}
               <th className={`sticky left-0 z-30 p-3 font-extrabold text-emerald-800 dark:text-emerald-300 border-r border-b ${borderColor} ${tableHeaderBg}`}>
-                座號 - 姓名
+                班級 - 座號 - 姓名
               </th>
               {/* 動態展開的資料欄位 */}
               {currentCols.map(col => (
@@ -194,10 +237,15 @@ export default function StudentList() {
                   {/* 凍結的左側儲存格 */}
                   <td className={`sticky left-0 z-10 p-3 border-r ${borderColor} ${stickyLeftBg} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
                     <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-gray-500 dark:text-gray-400 w-8">{student.grade}{student.class_name}</span>
                       <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">
                         {student.seat_number}
                       </span>
-                      <span className={`font-bold ${textColor}`}>{student.name}</span>
+                      <span className={`font-bold ${textColor} w-16 truncate`}>{student.name}</span>
+                      {/* 若為自學生，加上小標籤 */}
+                      {(student.enroll_type?.includes('自學') || student.enroll_type?.includes('在家')) && (
+                        <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded ml-1">自學</span>
+                      )}
                     </div>
                   </td>
                   
