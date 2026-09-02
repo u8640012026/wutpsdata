@@ -37,8 +37,8 @@ export default function RepairDashboard() {
     setIsLoading(true);
     try {
       let uid = 'dev-admin';
-      if (liff.isLoggedIn()) {
-        const profile = await liff.getProfile();
+      if (window.liff?.isLoggedIn()) {
+        const profile = await window.liff.getProfile();
         uid = profile.userId;
       }
       setLineUid(uid);
