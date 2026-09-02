@@ -66,13 +66,29 @@ export default function StudentList() {
     }
   };
 
+  const formatExcelDate = (val) => {
+    if (!val) return '';
+    const strVal = String(val).trim();
+    if (strVal.includes('/') || strVal.includes('-') || strVal.includes('年')) return strVal;
+    
+    const num = Number(strVal);
+    if (!isNaN(num) && num > 10000 && num < 70000) {
+      // Excel serial date to JS Date (days since 1899-12-30)
+      const date = new Date(Math.round((num - 25569) * 86400 * 1000));
+      const year = date.getUTCFullYear() - 1911;
+      const month = date.getUTCMonth() + 1;
+      const day = date.getUTCDate();
+      return `${year}/${month}/${day}`;
+    }
+    return strVal;
+  };
+
   const filteredStudents = students.filter(s => {
     if (!selectedClasses.includes(`${s.grade}${s.class_name}`)) return false;
     
-    // 自學生過濾邏輯：預設不顯示、不列入計算，除非使用者打勾
-    // 考慮到 Excel 欄位名稱可能叫「在學或自學」或「在學自學欄位」，它們會被塞進 details 裡
-    const enrollStr = `${s.enroll_type || ''} ${s.details?.['在學自學'] || ''} ${s.details?.['在學或自學'] || ''} ${s.details?.['就學狀態'] || ''} ${s.details?.['在學自學欄位'] || ''}`;
-    const isHomeschooled = enrollStr.includes('自學') || enrollStr.includes('在家') || enrollStr.includes('非在校');
+    // 終極自學生攔截邏輯：直接掃描該學生所有的資料欄位值 (避免 Excel 欄位名稱異動導致漏接)
+    const allValues = [s.enroll_type, ...Object.values(s.details || {})].map(v => String(v || ''));
+    const isHomeschooled = allValues.some(v => v.includes('自學') || v.includes('在家') || v.includes('非在校'));
     
     if (!showHomeschooled && isHomeschooled) return false;
     
@@ -246,7 +262,7 @@ export default function StudentList() {
                       </span>
                       <span className={`font-bold ${textColor} w-16 truncate`}>{student.name}</span>
                       {/* 若為自學生，加上小標籤 */}
-                      {(`${student.enroll_type || ''} ${details['在學自學'] || ''} ${details['在學或自學'] || ''} ${details['在學自學欄位'] || ''}`.includes('自學') || `${student.enroll_type || ''} ${details['在學或自學'] || ''}`.includes('在家')) && (
+                      {[student.enroll_type, ...Object.values(details)].some(v => String(v||'').includes('自學') || String(v||'').includes('在家')) && (
                         <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded ml-1">自學</span>
                       )}
                     </div>
@@ -258,6 +274,9 @@ export default function StudentList() {
                     let val = details[col] || details[col.replace('頁', '')] || '';
                     if (col === '性別' && !val) val = details['姓別'] || ''; 
                     
+                    // 生日格式處理
+                    if (col === '生日') val = formatExcelDate(val);
+
                     return (
                       <td key={col} className={`p-3 border-r ${borderColor} text-gray-600 dark:text-gray-300 max-w-[200px] truncate`}>
                         {val || '-'}
