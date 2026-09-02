@@ -85,8 +85,8 @@ function App() {
     <AppContext.Provider value={contextValue}>
       <div className={`min-h-[100dvh] flex flex-col ${isDark ? 'dark bg-slate-900 text-gray-100' : 'bg-stone-50 text-gray-800'}`}>
         
-        {/* 主要內容區塊，保留底部 pb-20 以免被 Navbar 遮擋 */}
-        <main className={`flex-1 w-full max-w-md mx-auto ${isLoggedIn ? 'pb-24 pt-4 px-4' : 'p-0'}`}>
+        {/* 主要內容區塊，保留底部 pb-20 以免被 Navbar 遮擋。加入 max-w-6xl 支援電腦版大螢幕 */}
+        <main className={`flex-1 w-full mx-auto ${isLoggedIn ? 'max-w-6xl pb-24 pt-4 px-4 sm:px-8' : 'max-w-md p-0'}`}>
           
           {isCheckingRole && (
             <div className="flex flex-col items-center justify-center min-h-[100dvh]">
