@@ -22,6 +22,7 @@ function App() {
   
   const [liffProfile, setLiffProfile] = useState(null);
   const [isLiffInit, setIsLiffInit] = useState(false);
+  const [isCheckingRole, setIsCheckingRole] = useState(true);
 
   const t = translations[lang];
 
@@ -33,8 +34,13 @@ function App() {
           setLiffProfile(profile);
           checkUserRole(profile.userId);
         });
+      } else {
+        setIsCheckingRole(false);
       }
-    }).catch(err => console.error('LIFF init failed', err));
+    }).catch(err => {
+      console.error('LIFF init failed', err);
+      setIsCheckingRole(false);
+    });
   }, []);
 
   const checkUserRole = async (lineUid) => {
@@ -52,6 +58,8 @@ function App() {
       }
     } catch (err) {
       console.error('API 驗證失敗', err);
+    } finally {
+      setIsCheckingRole(false);
     }
   };
 
@@ -79,11 +87,19 @@ function App() {
         
         {/* 主要內容區塊，保留底部 pb-20 以免被 Navbar 遮擋 */}
         <main className={`flex-1 w-full max-w-md mx-auto ${isLoggedIn ? 'pb-24 pt-4 px-4' : 'p-0'}`}>
-          {!isLoggedIn && (
+          
+          {isCheckingRole && (
+            <div className="flex flex-col items-center justify-center min-h-[100dvh]">
+              <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+              <p className="mt-4 text-emerald-700 font-bold animate-pulse">正在驗證身分...</p>
+            </div>
+          )}
+
+          {!isCheckingRole && !isLoggedIn && (
             <LiffLogin onLogin={handleLogin} toggleLang={toggleLang} toggleTheme={toggleTheme} lang={lang} isDark={isDark} t={t} liffProfile={liffProfile} isLiffInit={isLiffInit} />
           )}
           
-          {isLoggedIn && currentTab === 'home' && (
+          {!isCheckingRole && isLoggedIn && currentTab === 'home' && (
             <div className="animate-fade-in">
               <div className="flex justify-between items-center mb-6">
                 <h1 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.appTitle}</h1>
