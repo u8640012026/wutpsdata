@@ -3,17 +3,21 @@ import StudentCard from '../components/StudentCard';
 import { useApp } from '../App';
 
 const mockStudents = [
-  { id: '112001', name: '王小明', grade: '3', classNum: 'A', status: '在學', contact: '0912-345-678' },
-  { id: '112002', name: '林美玲', grade: '3', classNum: 'A', status: '請假', contact: '0922-333-444' },
+  { id: '112001', name: '王小明', grade: '3', classNum: 'A', status: '在學', enrollType: '在', contact: '0912-345-678', idNumber: 'A123456789', address: '台北市某某區', parent: '王大明', specialCondition: '' },
+  { id: '112002', name: '林美玲', grade: '3', classNum: 'A', status: '請假', enrollType: '在', contact: '0922-333-444', idNumber: 'F223456789', address: '', parent: '林媽媽', specialCondition: '氣喘' },
+  { id: '112003', name: '陳小豪', grade: '3', classNum: 'A', status: '在學', enrollType: '自', contact: '', idNumber: '', address: '在家自學地址', parent: '陳爸爸', specialCondition: '' },
 ];
 
 export default function TeacherDashboard() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [showHomeschooled, setShowHomeschooled] = useState(false);
   const { isDark, t } = useApp();
 
   const textColor = isDark ? 'text-white' : 'text-gray-800';
   const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
+
+  const displayedStudents = mockStudents.filter(s => showHomeschooled || s.enrollType === '在');
 
   if (selectedStudent) {
     return (
@@ -27,7 +31,7 @@ export default function TeacherDashboard() {
         </button>
         
         <div>
-          <h2 className={`text-2xl font-bold ${textColor}`}>{t.studentDetail}</h2>
+          <h2 className={`text-2xl font-bold ${textColor}`}>{t.studentDetail} {selectedStudent.enrollType === '自' && <span className="text-sm bg-orange-100 text-orange-600 px-2 py-1 rounded ml-2">在家自學</span>}</h2>
           <p className={`text-sm ${subTextColor}`}>{selectedStudent.name} {t.profileOf}</p>
         </div>
 
@@ -48,15 +52,15 @@ export default function TeacherDashboard() {
             {isEditing ? (
               <>
                 <div>
-                  <label className={`text-xs block mb-1 ${subTextColor}`}>{t.contactPhone}</label>
-                  <input type="text" defaultValue={selectedStudent.contact} className={`w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-gray-700 border-gray-600 text-white' : ''}`} />
+                  <label className={`text-xs block mb-1 ${subTextColor}`}>就讀狀態</label>
+                  <select className={`w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-gray-700 border-gray-600 text-white' : ''}`} defaultValue={selectedStudent.enrollType}>
+                    <option value="在">在學</option>
+                    <option value="自">在家自學</option>
+                  </select>
                 </div>
                 <div>
-                  <label className={`text-xs block mb-1 ${subTextColor}`}>{t.status}</label>
-                  <select className={`w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-gray-700 border-gray-600 text-white' : ''}`}>
-                    <option>{t.inSchool}</option>
-                    <option>{t.onLeave}</option>
-                  </select>
+                  <label className={`text-xs block mb-1 ${subTextColor}`}>{t.contactPhone}</label>
+                  <input type="text" defaultValue={selectedStudent.contact} className={`w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-gray-700 border-gray-600 text-white' : ''}`} />
                 </div>
                 <button 
                   className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 rounded-lg mt-4 transition"
@@ -68,18 +72,24 @@ export default function TeacherDashboard() {
             ) : (
               <div className="space-y-3">
                 <div className="flex justify-between">
+                  <span className={subTextColor}>身分證字號</span>
+                  <span className={`font-medium ${textColor}`}>{selectedStudent.idNumber || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className={subTextColor}>家長姓名</span>
+                  <span className={`font-medium ${textColor}`}>{selectedStudent.parent || '-'}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className={subTextColor}>{t.contactPhone}</span>
-                  <span className={`font-medium ${textColor}`}>{selectedStudent.contact}</span>
+                  <span className={`font-medium ${textColor}`}>{selectedStudent.contact || '-'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className={subTextColor}>{t.emergencyContact}</span>
-                  <span className={`font-medium ${textColor}`}>王爸爸</span>
+                  <span className={subTextColor}>通訊地址</span>
+                  <span className={`font-medium ${textColor}`}>{selectedStudent.address || '-'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className={subTextColor}>{t.currentStatus}</span>
-                  <span className={`font-medium px-2 py-0.5 rounded ${selectedStudent.status === '在學' ? (isDark ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-700') : (isDark ? 'bg-yellow-900 text-yellow-300' : 'bg-yellow-100 text-yellow-700')}`}>
-                    {selectedStudent.status === '在學' ? t.inSchool : t.onLeave}
-                  </span>
+                  <span className={subTextColor}>特殊病況</span>
+                  <span className={`font-medium ${selectedStudent.specialCondition ? 'text-red-500' : textColor}`}>{selectedStudent.specialCondition || '無'}</span>
                 </div>
               </div>
             )}
@@ -97,16 +107,28 @@ export default function TeacherDashboard() {
       </div>
 
       <section className="space-y-4">
-        <h3 className={`text-lg font-bold ${textColor}`}>{t.studentList}</h3>
+        <div className="flex justify-between items-center">
+          <h3 className={`text-lg font-bold ${textColor}`}>{t.studentList}</h3>
+          <label className="flex items-center space-x-2 text-sm cursor-pointer">
+            <input 
+              type="checkbox" 
+              checked={showHomeschooled} 
+              onChange={(e) => setShowHomeschooled(e.target.checked)}
+              className="rounded text-blue-500 focus:ring-blue-500"
+            />
+            <span className={subTextColor}>顯示在家自學生</span>
+          </label>
+        </div>
         
         <div className="grid gap-3">
-          {mockStudents.map((student) => (
+          {displayedStudents.map((student) => (
             <div 
               key={student.id} 
-              className="cursor-pointer hover:shadow-md transition duration-200"
+              className={`cursor-pointer hover:shadow-md transition duration-200 rounded-xl ${student.enrollType === '自' ? 'opacity-75 border-2 border-dashed border-orange-200' : ''}`}
               onClick={() => setSelectedStudent(student)}
             >
               <StudentCard student={student} />
+              {student.enrollType === '自' && <div className="text-center text-xs text-orange-500 bg-orange-50 py-1 rounded-b-xl">此為在家自學生，不列入一般統計</div>}
             </div>
           ))}
         </div>
