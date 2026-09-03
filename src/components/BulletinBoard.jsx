@@ -14,13 +14,13 @@ export default function BulletinBoard() {
   const [expireDays, setExpireDays] = useState('7');
   const [attachments, setAttachments] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [showAll, setShowAll] = useState(false); // 控制是否顯示所有公告
+  const [showAll, setShowAll] = useState(false); // ?�制?�否顯示?�?�公??
 
-  // 權限判斷：校長(1)、主任(2)、組長(3) 或 管理者(0)
+  // 權�??�斷：校??1)?�主�?2)?��???3) ??管�???0)
   const roleTags = staffData?.role_tags || '';
   const canPost = ['0', '1', '2', '3'].some(r => roleTags.includes(r));
   const currentUserUid = liffProfile?.userId || 'dev-admin';
-  const currentUserName = staffData?.name || liffProfile?.displayName || '未知使用者';
+  const currentUserName = staffData?.name || liffProfile?.displayName || '?�知使用??;
 
   useEffect(() => {
     fetchAnnouncements();
@@ -47,9 +47,9 @@ export default function BulletinBoard() {
     const file = e.target.files[0];
     if (!file) return;
     
-    // 限制 3MB
+    // ?�制 3MB
     if (file.size > 3 * 1024 * 1024) {
-      alert('為了確保傳輸穩定，單個檔案請勿超過 3MB');
+      alert('?��?確�??�輸穩�?，單?��?案�??��???3MB');
       e.target.value = '';
       return;
     }
@@ -58,7 +58,7 @@ export default function BulletinBoard() {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       const base64Data = evt.target.result.split(',')[1];
-      // 避免中文或特殊字元導致 Supabase Invalid key，改用純英數作為真實儲存檔名
+      // ?��?中�??�特殊�??��???Supabase Invalid key，改?��??�數作為?�實?��?檔�?
       const ext = file.name.split('.').pop() || '';
       const safeFilename = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext ? '.' + ext : ''}`;
       
@@ -75,14 +75,14 @@ export default function BulletinBoard() {
         
         const data = await res.json();
         if (res.ok) {
-          // 畫面上與資料庫中依然保留原始的中文檔名 (file.name)
+          // ?�面上�?資�?庫中依然保�??��??�中?��???(file.name)
           setAttachments(prev => [...prev, { name: file.name, url: data.url }]);
         } else {
-          alert('上傳失敗: ' + (data.error || '未知錯誤'));
+          alert('上傳失�?: ' + (data.error || '?�知?�誤'));
         }
       } catch (err) {
         console.error(err);
-        alert('上傳發生例外錯誤');
+        alert('上傳?��?例�??�誤');
       }
       setIsUploading(false);
       e.target.value = '';
@@ -91,7 +91,7 @@ export default function BulletinBoard() {
   };
 
   const handlePost = async () => {
-    if (!newTitle.trim()) return alert('請填寫標題');
+    if (!newTitle.trim()) return alert('請填寫�?�?);
     setIsLoading(true);
     
     let expire_at = null;
@@ -111,7 +111,7 @@ export default function BulletinBoard() {
           author_uid: currentUserUid,
           author_name: currentUserName,
           expire_at,
-          attachments // 傳送附件陣列
+          attachments // ?�送�?件陣??
         })
       });
       if (res.ok) {
@@ -128,7 +128,7 @@ export default function BulletinBoard() {
   };
 
   const handleArchive = async (id) => {
-    if (!window.confirm('確定要將此公告手動下架至歷史區嗎？')) return;
+    if (!window.confirm('確�?要�?此公?��??��??�至歷史?�?��?')) return;
     try {
       await fetch('/api/announcements', {
         method: 'PUT',
@@ -143,25 +143,25 @@ export default function BulletinBoard() {
 
   const textColor = isDark ? 'text-gray-100' : 'text-gray-800';
   const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
-  const cardBg = isDark ? 'bg-slate-800' : 'bg-white';
-  const borderColor = isDark ? 'border-slate-700' : 'border-gray-200';
+  const cardBg = isDark ? 'bg-emerald-950/30' : 'bg-emerald-50/50';
+  const borderColor = isDark ? 'border-emerald-900/50' : 'border-emerald-100';
 
   return (
     <div className="space-y-4">
-      {/* 頂部切換與發布按鈕 */}
+      {/* ?�部?��??�發布�???*/}
       <div className="flex justify-between items-center mb-2">
         <div className={`flex rounded-lg overflow-hidden border ${borderColor}`}>
           <button 
             onClick={() => setActiveTab('active')}
             className={`px-4 py-2 text-sm font-bold transition-colors ${activeTab === 'active' ? 'bg-blue-600 text-white' : `${isDark ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}`}
           >
-            最新公告
+            ?�?�公??
           </button>
           <button 
             onClick={() => setActiveTab('history')}
             className={`px-4 py-2 text-sm font-bold transition-colors ${activeTab === 'history' ? 'bg-gray-600 text-white' : `${isDark ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}`}
           >
-            歷史公告
+            歷史?��?
           </button>
         </div>
         
@@ -171,24 +171,24 @@ export default function BulletinBoard() {
             className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-sm transition-transform active:scale-95"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            張貼公告
+            張貼?��?
           </button>
         )}
       </div>
 
-      {/* 發布公告表單 */}
+      {/* ?��??��?表單 */}
       {isComposing && (
         <div className={`p-4 rounded-xl shadow-sm border-l-4 border-emerald-500 ${cardBg}`}>
-          <h3 className={`font-bold mb-3 ${textColor}`}>📝 張貼新公告</h3>
+          <h3 className={`font-bold mb-3 ${textColor}`}>?? 張貼?�公??/h3>
           <input 
             type="text" 
-            placeholder="公告標題" 
+            placeholder="?��?標�?" 
             value={newTitle}
             onChange={e => setNewTitle(e.target.value)}
             className={`w-full p-2 mb-3 rounded border text-sm font-bold ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-stone-50 border-gray-300'}`}
           />
           <textarea 
-            placeholder="公告內容 (可貼上超連結)" 
+            placeholder="?��??�容 (?�貼上�????)" 
             value={newContent}
             onChange={e => setNewContent(e.target.value)}
             rows={4}
@@ -197,55 +197,55 @@ export default function BulletinBoard() {
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
             <div className="flex items-center gap-2">
-              <span className={`text-sm font-bold ${subTextColor}`}>自動下架：</span>
+              <span className={`text-sm font-bold ${subTextColor}`}>?��?下架�?/span>
               <select 
                 value={expireDays}
                 onChange={e => setExpireDays(e.target.value)}
                 className={`p-1.5 rounded border text-sm font-bold outline-none ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-stone-50 border-gray-300'}`}
               >
-                <option value="3">3 天後</option>
-                <option value="7">7 天後</option>
-                <option value="14">14 天後</option>
-                <option value="30">30 天後</option>
-                <option value="never">手動下架 (永久)</option>
+                <option value="3">3 天�?</option>
+                <option value="7">7 天�?</option>
+                <option value="14">14 天�?</option>
+                <option value="30">30 天�?</option>
+                <option value="never">?��?下架 (永�?)</option>
               </select>
             </div>
             
             <div className="flex flex-col gap-2">
               <label className={`flex items-center gap-2 text-sm font-bold cursor-pointer transition-colors px-3 py-1.5 rounded-lg border ${isUploading ? 'bg-gray-200 text-gray-500 border-transparent cursor-not-allowed' : 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 dark:bg-slate-700 dark:border-slate-600 dark:text-blue-400 dark:hover:bg-slate-600'}`}>
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                {isUploading ? '上傳中...' : '加入附件 (Max 3MB)'}
+                {isUploading ? '上傳�?..' : '?�入?�件 (Max 3MB)'}
                 <input type="file" className="sr-only" onChange={handleFileSelect} disabled={isUploading} />
               </label>
             </div>
           </div>
 
-          {/* 附件列表預覽 */}
+          {/* ?�件?�表?�覽 */}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
               {attachments.map((att, i) => (
                 <div key={i} className={`flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-100 text-gray-600 border border-gray-200 dark:bg-slate-700 dark:border-slate-600 dark:text-gray-300`}>
                   <svg className="w-3 h-3 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
                   {att.name}
-                  <button onClick={() => setAttachments(attachments.filter((_, idx) => idx !== i))} className="ml-1 text-red-500 hover:text-red-700 font-bold">×</button>
+                  <button onClick={() => setAttachments(attachments.filter((_, idx) => idx !== i))} className="ml-1 text-red-500 hover:text-red-700 font-bold">?</button>
                 </div>
               ))}
             </div>
           )}
 
           <div className="flex justify-end gap-2 border-t pt-3 dark:border-slate-700">
-            <button onClick={() => { setIsComposing(false); setAttachments([]); }} className={`px-4 py-2 rounded-lg text-sm font-bold ${isDark ? 'bg-slate-700 text-gray-300' : 'bg-gray-200 text-gray-700'}`}>取消</button>
-            <button onClick={handlePost} disabled={isLoading || isUploading} className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-400">{isLoading ? '發布中...' : '確認發布'}</button>
+            <button onClick={() => { setIsComposing(false); setAttachments([]); }} className={`px-4 py-2 rounded-lg text-sm font-bold ${isDark ? 'bg-slate-700 text-gray-300' : 'bg-gray-200 text-gray-700'}`}>?��?</button>
+            <button onClick={handlePost} disabled={isLoading || isUploading} className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-400">{isLoading ? '?��?�?..' : '確�??��?'}</button>
           </div>
         </div>
       )}
 
-      {/* 公告列表 */}
+      {/* ?��??�表 */}
       {isLoading && !isComposing ? (
-        <p className="text-center py-8 text-gray-500 font-bold animate-pulse">載入公告中...</p>
+        <p className="text-center py-8 text-gray-500 font-bold animate-pulse">載入?��?�?..</p>
       ) : announcements.length === 0 ? (
         <div className={`p-8 text-center rounded-xl border border-dashed ${isDark ? 'border-slate-600' : 'border-gray-300'} ${cardBg}`}>
-          <p className={subTextColor}>目前沒有{activeTab === 'active' ? '最新' : '歷史'}公告</p>
+          <p className={subTextColor}>?��?沒�?{activeTab === 'active' ? '?�?? : '歷史'}?��?</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -260,13 +260,13 @@ export default function BulletinBoard() {
             />
           ))}
           
-          {/* 顯示全部 / 收合按鈕 */}
+          {/* 顯示?�部 / ?��??��? */}
           {announcements.length > 3 && (
             <button 
               onClick={() => setShowAll(!showAll)}
               className={`w-full py-2.5 rounded-lg text-sm font-bold border transition-colors ${isDark ? 'border-slate-700 text-gray-400 hover:bg-slate-700/50' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
             >
-              {showAll ? '收起公告 (僅顯示最新 3 則)' : `查看全部公告 (共 ${announcements.length} 則)`}
+              {showAll ? '?�起?��? (?�顯示�???3 ??' : `?��??�部?��? (??${announcements.length} ??`}
             </button>
           )}
         </div>
@@ -282,10 +282,10 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
 
-  const cardBg = isDark ? 'bg-slate-800' : 'bg-white';
+  const cardBg = isDark ? 'bg-emerald-950/30' : 'bg-emerald-50/50';
   const textColor = isDark ? 'text-gray-100' : 'text-gray-800';
   const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
-  const borderColor = isDark ? 'border-slate-700' : 'border-gray-100';
+  const borderColor = isDark ? 'border-emerald-900/50' : 'border-emerald-100';
 
   const toggleExpand = () => {
     const nextState = !expanded;
@@ -337,7 +337,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
     return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
-  // 超連結處理
+  // 超�???��?
   const renderContentWithLinks = (text) => {
     if (!text) return null;
     const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -351,7 +351,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
 
   return (
     <div className={`rounded-xl shadow-sm border ${borderColor} ${cardBg} overflow-hidden transition-all duration-300`}>
-      {/* 點擊標題展開 */}
+      {/* 點�?標�?展�? */}
       <div 
         onClick={toggleExpand}
         className={`p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 flex flex-col gap-2`}
@@ -365,7 +365,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs">
-              {ann.author_name?.[0] || '無'}
+              {ann.author_name?.[0] || '??}
             </div>
             <span className={`text-sm font-bold ${subTextColor}`}>{ann.author_name}</span>
           </div>
@@ -375,15 +375,15 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
         </div>
       </div>
 
-      {/* 展開後的內容與留言區 */}
+      {/* 展�?後�??�容?��?言?� */}
       {expanded && (
         <div className={`border-t ${borderColor} animate-fade-in`}>
-          {/* 內文 */}
+          {/* ?��? */}
           <div className={`p-4 text-sm leading-relaxed ${textColor}`}>
             {renderContentWithLinks(ann.content)}
           </div>
           
-          {/* 附件下載區塊 */}
+          {/* ?�件下�??��?*/}
           {ann.attachments && ann.attachments.length > 0 && (
             <div className={`px-4 pb-4 flex flex-wrap gap-2`}>
               {ann.attachments.map((att, i) => (
@@ -402,24 +402,24 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
             </div>
           )}
           
-          {/* 下架按鈕 */}
+          {/* 下架?��? */}
           {canArchive && (
             <div className={`px-4 pb-4 flex justify-end`}>
               <button onClick={onArchive} className="text-xs text-red-500 font-bold hover:bg-red-50 dark:hover:bg-slate-700 px-2 py-1 rounded transition-colors">
-                手動下架此公告
+                ?��?下架此公??
               </button>
             </div>
           )}
 
-          {/* 留言區 */}
+          {/* ?��??� */}
           <div className={`bg-gray-50 dark:bg-slate-800/80 p-4 border-t ${borderColor}`}>
-            <h5 className={`text-sm font-bold mb-3 ${subTextColor}`}>回應區</h5>
+            <h5 className={`text-sm font-bold mb-3 ${subTextColor}`}>?��??�</h5>
             
             {loadingComments ? (
-              <p className="text-xs text-center text-gray-400">讀取中...</p>
+              <p className="text-xs text-center text-gray-400">讀?�中...</p>
             ) : (
               <div className="space-y-3 mb-4 max-h-60 overflow-y-auto scrollbar-hide">
-                {comments.length === 0 && <p className="text-xs text-gray-400 italic">尚無回應，來搶頭香吧！</p>}
+                {comments.length === 0 && <p className="text-xs text-gray-400 italic">尚無?��?，�??�頭香吧�?/p>}
                 {comments.map(c => (
                   <div key={c.id} className="flex gap-2">
                     <div className="w-6 h-6 rounded-full bg-emerald-100 flex-shrink-0 flex items-center justify-center text-emerald-700 font-bold text-xs mt-0.5">
@@ -437,11 +437,11 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
               </div>
             )}
             
-            {/* 留言輸入 */}
+            {/* ?��?輸入 */}
             <div className="flex gap-2">
               <input 
                 type="text" 
-                placeholder="寫下回應..." 
+                placeholder="寫�??��?..." 
                 value={newComment}
                 onChange={e => setNewComment(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handlePostComment()}

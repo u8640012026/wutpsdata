@@ -340,24 +340,24 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 gap-4 mt-6">
         <button 
           onClick={() => setCurrentView('calendar')}
-          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition active:scale-[0.98] ${isDark ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:shadow-md'}`}
+          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition active:scale-[0.98] border ${isDark ? 'bg-orange-950/30 hover:bg-orange-900/40 border-orange-900/50' : 'bg-orange-50 hover:bg-orange-100 border-orange-100'}`}
         >
           <div className="text-left">
-            <h3 className={`text-lg font-bold ${textColor}`}>{t.calendarTitle}</h3>
-            <p className={`text-sm ${subTextColor}`}>{t.calendarDesc}</p>
+            <h3 className={`text-lg font-bold ${isDark ? 'text-orange-400' : 'text-orange-700'}`}>{t.calendarTitle} <span className="text-xs font-normal opacity-80">(開發樣本 - 尚未串接 Google)</span></h3>
+            <p className={`text-sm ${isDark ? 'text-orange-500/70' : 'text-orange-600/70'}`}>{t.calendarDesc}</p>
           </div>
-          <svg className={`w-6 h-6 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          <svg className={`w-6 h-6 ${isDark ? 'text-orange-500' : 'text-orange-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </button>
 
         <button 
           onClick={() => setCurrentView('students')}
-          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white hover:shadow-md'}`}
+          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition border ${isDark ? 'bg-blue-950/30 hover:bg-blue-900/40 border-blue-900/50' : 'bg-blue-50 hover:bg-blue-100 border-blue-100'}`}
         >
           <div className="text-left">
-            <h3 className={`text-lg font-bold ${textColor}`}>{t.rosterTitle}</h3>
-            <p className={`text-sm ${subTextColor}`}>{t.rosterDesc}</p>
+            <h3 className={`text-lg font-bold ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>{t.rosterTitle}</h3>
+            <p className={`text-sm ${isDark ? 'text-blue-500/70' : 'text-blue-600/70'}`}>{t.rosterDesc}</p>
           </div>
-          <svg className={`w-6 h-6 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          <svg className={`w-6 h-6 ${isDark ? 'text-blue-500' : 'text-blue-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </button>
 
         {(staffData?.role_tags?.includes('0') || staffData?.email?.includes('u864001')) && (
