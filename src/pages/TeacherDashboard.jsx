@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import StudentCard from '../components/StudentCard';
+import BulletinBoard from '../components/BulletinBoard';
 import { useApp } from '../App';
 
 const mockStudents = [
@@ -106,7 +107,9 @@ export default function TeacherDashboard() {
         <p className={`text-sm ${subTextColor}`}>{t.teacherDesc}</p>
       </div>
 
-      <section className="space-y-4">
+      <BulletinBoard />
+
+      <section className="space-y-4 mt-6">
         <div className="flex justify-between items-center">
           <h3 className={`text-lg font-bold ${textColor}`}>{t.studentList}</h3>
           <label className="flex items-center space-x-2 text-sm cursor-pointer">

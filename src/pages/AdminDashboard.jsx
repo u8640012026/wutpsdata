@@ -7,10 +7,11 @@ import { supabase } from '../supabaseClient';
 import RepairDashboard from './RepairDashboard';
 import StaffList from '../components/StaffList';
 import StudentList from '../components/StudentList';
+import BulletinBoard from '../components/BulletinBoard';
 
 const mockEvents = [
   { date: '2023-11-01', title: '全校運動會 / Sports Day', description: '請全體師生準時於操場集合 / Gather at the field' },
-  { date: '2023-11-15', title: '期中考 / Midterm', description: '各科期中評量 / Midterm exams' },
+  { date: '2023-11-15', title: '期中考 / Midterm', description: '期中評量 / Midterm exams' },
 ];
 
 export default function AdminDashboard() {
@@ -326,7 +327,9 @@ export default function AdminDashboard() {
         <p className={`text-sm ${subTextColor}`}>{t.adminDesc}</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
+      <BulletinBoard />
+
+      <div className="grid grid-cols-1 gap-4 mt-6">
         <button 
           onClick={() => setCurrentView('calendar')}
           className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition active:scale-[0.98] ${isDark ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:shadow-md'}`}
