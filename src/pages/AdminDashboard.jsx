@@ -10,8 +10,8 @@ import StudentList from '../components/StudentList';
 import BulletinBoard from '../components/BulletinBoard';
 
 const mockEvents = [
-  { date: '2023-11-01', title: '全校運動會 / Sports Day', description: '請全體師生準時於操場集合 / Gather at the field' },
-  { date: '2023-11-15', title: '期中考 / Midterm', description: '期中評量 / Midterm exams' },
+  { date: '2023-11-01', title: '?�校?��???/ Sports Day', description: '請全體師?��??�於?�場?��? / Gather at the field' },
+  { date: '2023-11-15', title: '?�中??/ Midterm', description: '?�中評�? / Midterm exams' },
 ];
 
 export default function AdminDashboard() {
@@ -28,7 +28,7 @@ export default function AdminDashboard() {
     if (!file) return;
     
     setIsLoading(true);
-    setUploadStatus('正在讀取 Excel 檔案...');
+    setUploadStatus('�?��讀??Excel 檔�?...');
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
@@ -39,26 +39,26 @@ export default function AdminDashboard() {
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws);
 
-        setUploadStatus(`檔案讀取成功，共 ${data.length} 筆資料。開始上傳至資料庫...`);
+        setUploadStatus(`檔�?讀?��??��???${data.length} 筆�??�。�?始�??�至資�?�?..`);
 
         const formattedData = data.map(row => {
-          // 擷取所有非核心欄位放入 details
-          const { 學號, 姓名, 年級, 班級, 座號, 在學或自學, 父親電話, 母親電話, ...otherDetails } = row;
+          // ?��??�?��??��?欄�??�入 details
+          const { 學�?, 姓�?, 年�?, ?��?, 座�?, ?�學?�自�? ?�親?�話, 母親?�話, ...otherDetails } = row;
           
           return {
-            student_id: String(學號 || ''),
-            name: 姓名 || '未知',
-            grade: String(年級 || ''),
-            class_name: String(班級 || ''),
-            seat_number: String(座號 || ''),
-            enroll_type: 在學或自學 || '在',
-            parent_phone: String(父親電話 || 母親電話 || ''),
+            student_id: String(學�? || ''),
+            name: 姓�? || '?�知',
+            grade: String(年�? || ''),
+            class_name: String(?��? || ''),
+            seat_number: String(座�? || ''),
+            enroll_type: ?�學?�自�?|| '??,
+            parent_phone: String(?�親?�話 || 母親?�話 || ''),
             details: otherDetails
           };
-        }).filter(item => item.student_id); // 過濾掉沒有學號的空行
+        }).filter(item => item.student_id); // ?�濾?��??�學?��?空�?
 
         if (formattedData.length === 0) {
-          throw new Error('找不到有效的學生資料，請確認 Excel 包含「學號」與「姓名」欄位。');
+          throw new Error('?��??��??��?學�?資�?，�?確�? Excel ?�含?�學?�」�??��??�」�?位�?);
         }
 
         const response = await fetch('/api/students', {
@@ -71,12 +71,12 @@ export default function AdminDashboard() {
         });
 
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || '未知的錯誤');
+        if (!response.ok) throw new Error(result.error || '?�知?�錯�?);
         
-        setUploadStatus(`✅ 成功匯入 ${result.count} 筆學生資料！ (並已寫入安全日誌)`);
+        setUploadStatus(`???��??�入 ${result.count} 筆學?��??��? (並已寫入安全?��?)`);
       } catch (err) {
         console.error(err);
-        setUploadStatus(`❌ 上傳失敗: ${err.message}`);
+        setUploadStatus(`??上傳失�?: ${err.message}`);
       } finally {
         setIsLoading(false);
         e.target.value = null; // 清空 input
@@ -90,7 +90,7 @@ export default function AdminDashboard() {
     if (!file) return;
     
     setIsLoading(true);
-    setUploadStatus('讀取教職員 Excel 檔案中...');
+    setUploadStatus('讀?��??�員 Excel 檔�?�?..');
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
@@ -101,27 +101,27 @@ export default function AdminDashboard() {
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws);
 
-        setUploadStatus(`檔案讀取成功，共 ${data.length} 筆資料。開始寫入資料庫...`);
+        setUploadStatus(`檔�?讀?��??��???${data.length} 筆�??�。�?始寫?��??�庫...`);
 
         const formattedData = data.map(rawRow => {
-          // 清理 Excel 表頭可能帶有的隱形空白或換行符號
+          // 清�? Excel 表頭?�能帶�??�隱形空?��??��?符�?
           const row = {};
           for (let key in rawRow) {
             row[key.trim()] = rawRow[key];
           }
           
           return {
-            name: row['姓名'] || row.name || '未知',
-            department: row['處室'] || row.department || '',
-            title: row['職稱'] || row.title || '',
-            class_assigned: row['任教班級'] || row.class_assigned || '',
-            email: String(row['電子信箱'] || row.email || '').trim(),
+            name: row['姓�?'] || row.name || '?�知',
+            department: row['?�室'] || row.department || '',
+            title: row['?�稱'] || row.title || '',
+            class_assigned: row['任�??��?'] || row.class_assigned || '',
+            email: String(row['?��?信箱'] || row.email || '').trim(),
             role_tags: String(row['角色標籤'] || row.role_tags || '')
           };
-        }).filter(item => item.email); // 電子信箱是必填主鍵
+        }).filter(item => item.email); // ?��?信箱?��?填主??
 
         if (formattedData.length === 0) {
-          throw new Error('未找到有效資料，請確保包含「電子信箱」欄位');
+          throw new Error('?�找?��??��??��?請確保�??�「電子信箱」�?�?);
         }
 
         const response = await fetch('/api/staff_import', {
@@ -135,12 +135,12 @@ export default function AdminDashboard() {
 
         const result = await response.json();
         if (response.ok) {
-          setUploadStatus(`✅ 成功更新 ${result.count} 筆教職員資料！(原綁定資料已自動保留)`);
+          setUploadStatus(`???��??�新 ${result.count} 筆�??�員資�?�??��?定�??�已?��?保�?)`);
         } else {
-          setUploadStatus(`❌ 錯誤: ${result.error}`);
+          setUploadStatus(`???�誤: ${result.error}`);
         }
       } catch (err) {
-        setUploadStatus(`❌ 解析失敗: ${err.message}`);
+        setUploadStatus(`??�??失�?: ${err.message}`);
       } finally {
         setIsLoading(false);
         e.target.value = null; // 清空 input
@@ -158,7 +158,7 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-100/60 text-blue-600'}`}
         >
           <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           {t.goBack}
@@ -173,62 +173,62 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-100/60 text-blue-600'}`}
         >
           <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           {t.goBack}
         </button>
 
         <div>
-          <h2 className={`text-2xl font-bold ${textColor}`}>系統資料庫管理</h2>
-          <p className={`text-sm ${subTextColor}`}>限註冊組長與系統管理者存取</p>
+          <h2 className={`text-2xl font-bold ${textColor}`}>系統資�?庫管??/h2>
+          <p className={`text-sm ${subTextColor}`}>?�註?��??��?系統管�??��???/p>
         </div>
 
         {uploadStatus && (
-          <div className={`p-4 rounded-lg text-sm font-semibold ${uploadStatus.includes('✅') ? 'bg-green-100 text-green-700' : uploadStatus.includes('❌') ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+          <div className={`p-4 rounded-lg text-sm font-semibold ${uploadStatus.includes('??) ? 'bg-green-100 text-green-700' : uploadStatus.includes('??) ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
             {uploadStatus}
           </div>
         )}
 
-        {/* 學生資料上傳區塊 */}
+        {/* 學�?資�?上傳?��?*/}
         <section className={`rounded-xl shadow-sm p-5 border-l-4 border-blue-500 ${cardBg}`}>
-          <h3 className={`text-lg font-bold mb-1 ${textColor}`}>👦 匯入學生總表</h3>
-          <p className={`text-xs mb-4 ${subTextColor}`}>包含學號、年級、班級、醫療、家長等 31 個完整欄位</p>
+          <h3 className={`text-lg font-bold mb-1 ${textColor}`}>?�� ?�入學�?總表</h3>
+          <p className={`text-xs mb-4 ${subTextColor}`}>?�含學�??�年級、班級、醫?�、家?��? 31 ?��??��?�?/p>
           <div className={`border-2 border-dashed rounded-lg p-6 text-center ${isDark ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'} ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}>
             <svg className={`mx-auto h-8 w-8 mb-2 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            <label className={`cursor-pointer rounded text-white text-sm px-3 py-1.5 ${isLoading ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'}`}>
-              {isLoading ? '處理中...' : '選擇 Excel / CSV 檔案'}
+            <label className={`cursor-pointer rounded text-white text-sm px-3 py-1.5 ${isLoading ? 'bg-gray-400' : 'bg-blue-100/600 hover:bg-blue-600'}`}>
+              {isLoading ? '?��?�?..' : '?��? Excel / CSV 檔�?'}
               <input type="file" className="sr-only" accept=".xlsx, .xls, .csv" onChange={handleStudentUpload} disabled={isLoading} />
             </label>
           </div>
         </section>
 
-        {/* 教職員資料上傳區塊 */}
+        {/* ?�職?��??��??��?�?*/}
         <section className={`rounded-xl shadow-sm p-5 border-l-4 border-green-500 ${cardBg}`}>
-          <h3 className={`text-lg font-bold mb-1 ${textColor}`}>👨‍🏫 匯入教職員名冊</h3>
-          <p className={`text-xs mb-4 ${subTextColor}`}>用於開通權限，包含姓名、職務、任教班級、信箱</p>
+          <h3 className={`text-lg font-bold mb-1 ${textColor}`}>?��?��???�入?�職?��???/h3>
+          <p className={`text-xs mb-4 ${subTextColor}`}>?�於?�通�??��??�含姓�??�職?�、任?�班級、信�?/p>
           <div className={`border-2 border-dashed rounded-lg p-6 text-center ${isDark ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'}`}>
             <svg className={`mx-auto h-8 w-8 mb-2 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
             <label className={`cursor-pointer rounded text-white text-sm px-3 py-1.5 ${isLoading ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600'}`}>
-              {isLoading ? '處理中...' : '選擇 Excel / CSV 檔案'}
+              {isLoading ? '?��?�?..' : '?��? Excel / CSV 檔�?'}
               <input type="file" className="sr-only" accept=".xlsx, .xls, .csv" onChange={handleStaffUpload} disabled={isLoading} />
             </label>
           </div>
         </section>
 
-        {/* 行事曆設定區塊 */}
+        {/* 行�??�設定�?�?*/}
         <section className={`rounded-xl shadow-sm p-5 border-l-4 border-yellow-500 ${cardBg}`}>
-          <h3 className={`text-lg font-bold mb-1 ${textColor}`}>📅 介接 Google 日曆</h3>
-          <p className={`text-xs mb-4 ${subTextColor}`}>設定全校行事曆來源</p>
+          <h3 className={`text-lg font-bold mb-1 ${textColor}`}>?? 介接 Google ?��?</h3>
+          <p className={`text-xs mb-4 ${subTextColor}`}>設�??�校行�??��?�?/p>
           <div className="space-y-3">
-            <input type="text" placeholder="請輸入 Google Calendar ID" className={`w-full text-sm p-2 border rounded ${isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white'}`} />
-            <input type="text" placeholder="請輸入 API Key" className={`w-full text-sm p-2 border rounded ${isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white'}`} />
+            <input type="text" placeholder="請輸??Google Calendar ID" className={`w-full text-sm p-2 border rounded ${isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white'}`} />
+            <input type="text" placeholder="請輸??API Key" className={`w-full text-sm p-2 border rounded ${isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white'}`} />
             <button className={`w-full font-semibold py-2 rounded text-sm ${isDark ? 'bg-yellow-900 text-yellow-200' : 'bg-yellow-100 text-yellow-700'}`}>
-              儲存並同步日曆
+              ?��?並�?步日??
             </button>
           </div>
         </section>
@@ -242,7 +242,7 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-100/60 text-blue-600'}`}
         >
           <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           {t.goBack}
@@ -257,7 +257,7 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => { setCurrentView('menu'); setIsEditing(false); }}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-100/60 text-blue-600'}`}
         >
           <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           {t.goBack}
@@ -318,7 +318,7 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-100/60 text-blue-600'}`}
         >
           <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           {t.goBack}
@@ -340,10 +340,10 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 gap-4 mt-6">
         <button 
           onClick={() => setCurrentView('calendar')}
-          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition active:scale-[0.98] border ${isDark ? 'bg-orange-950/30 hover:bg-orange-900/40 border-orange-900/50' : 'bg-orange-50 hover:bg-orange-100 border-orange-100'}`}
+          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition active:scale-[0.98] border ${isDark ? 'bg-orange-950/30 hover:bg-orange-900/40 border-orange-900/50' : 'bg-orange-100/60 hover:bg-orange-100 border-orange-100'}`}
         >
           <div className="text-left">
-            <h3 className={`text-lg font-bold ${isDark ? 'text-orange-400' : 'text-orange-700'}`}>{t.calendarTitle} <span className="text-xs font-normal opacity-80">(開發樣本 - 尚未串接 Google)</span></h3>
+            <h3 className={`text-lg font-bold ${isDark ? 'text-orange-400' : 'text-orange-700'}`}>{t.calendarTitle} <span className="text-xs font-normal opacity-80">(?�發�?�� - 尚未串接 Google)</span></h3>
             <p className={`text-sm ${isDark ? 'text-orange-500/70' : 'text-orange-600/70'}`}>{t.calendarDesc}</p>
           </div>
           <svg className={`w-6 h-6 ${isDark ? 'text-orange-500' : 'text-orange-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -351,7 +351,7 @@ export default function AdminDashboard() {
 
         <button 
           onClick={() => setCurrentView('students')}
-          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition border ${isDark ? 'bg-blue-950/30 hover:bg-blue-900/40 border-blue-900/50' : 'bg-blue-50 hover:bg-blue-100 border-blue-100'}`}
+          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition border ${isDark ? 'bg-blue-950/30 hover:bg-blue-900/40 border-blue-900/50' : 'bg-blue-100/60 hover:bg-blue-100 border-blue-100'}`}
         >
           <div className="text-left">
             <h3 className={`text-lg font-bold ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>{t.rosterTitle}</h3>
@@ -367,8 +367,8 @@ export default function AdminDashboard() {
               className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white hover:shadow-md'}`}
             >
               <div className="text-left">
-                <h3 className={`text-lg font-bold text-purple-600`}>👨‍🏫 教職員名冊與權限管理</h3>
-                <p className={`text-sm ${subTextColor}`}>超級管理員專屬：查看綁定狀態與權限</p>
+                <h3 className={`text-lg font-bold text-purple-600`}>?��?��???�職?��??��?權�?管�?</h3>
+                <p className={`text-sm ${subTextColor}`}>超�?管�??��?屬�??��?綁�??�?��?權�?</p>
               </div>
               <svg className={`w-6 h-6 text-purple-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
             </button>
@@ -378,8 +378,8 @@ export default function AdminDashboard() {
               className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-slate-800 hover:bg-slate-700 border border-emerald-900' : 'bg-white hover:shadow-md border border-emerald-100'}`}
             >
               <div className="text-left">
-                <h3 className={`text-lg font-bold text-emerald-600`}>🗄️ 系統資料庫匯入區</h3>
-                <p className={`text-sm ${subTextColor}`}>超級管理員專屬：批次上傳學生與教職員</p>
+                <h3 className={`text-lg font-bold text-emerald-600`}>??�?系統資�?庫匯?��?</h3>
+                <p className={`text-sm ${subTextColor}`}>超�?管�??��?屬�??�次上傳學�??��??�員</p>
               </div>
               <svg className={`w-6 h-6 text-emerald-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
             </button>

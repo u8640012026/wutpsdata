@@ -143,7 +143,7 @@ export default function BulletinBoard() {
 
   const textColor = isDark ? 'text-gray-100' : 'text-gray-800';
   const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
-  const cardBg = isDark ? 'bg-emerald-950/30' : 'bg-emerald-50/50';
+  const cardBg = isDark ? 'bg-emerald-950/30' : 'bg-emerald-100/50';
   const borderColor = isDark ? 'border-emerald-900/50' : 'border-emerald-100';
 
   return (
@@ -282,7 +282,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
 
-  const cardBg = isDark ? 'bg-emerald-950/30' : 'bg-emerald-50/50';
+  const cardBg = isDark ? 'bg-emerald-950/30' : 'bg-emerald-100/50';
   const textColor = isDark ? 'text-gray-100' : 'text-gray-800';
   const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
   const borderColor = isDark ? 'border-emerald-900/50' : 'border-emerald-100';
