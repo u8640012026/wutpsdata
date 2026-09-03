@@ -31,7 +31,7 @@ export default async function handler(req, res) {
     // 2. 如果存在，才將 LINE UID 寫入該筆資料完成綁定
     const { error: updateError } = await supabase
       .from('staff')
-      .update({ line_uid: userId, name: displayName }) // 選擇性更新顯示名稱
+      .update({ line_uid: userId }) // 移除了 name: displayName，確保只更新 line_uid，保留原始真實姓名與職稱
       .eq('id', existingStaff.id);
 
     if (updateError) throw updateError;
