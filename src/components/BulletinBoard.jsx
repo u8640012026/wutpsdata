@@ -58,14 +58,16 @@ export default function BulletinBoard() {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       const base64Data = evt.target.result.split(',')[1];
-      const uniqueFilename = `${Date.now()}_${file.name}`;
+      // 避免中文或特殊字元導致 Supabase Invalid key，改用純英數作為真實儲存檔名
+      const ext = file.name.split('.').pop() || '';
+      const safeFilename = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext ? '.' + ext : ''}`;
       
       try {
         const res = await fetch('/api/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            filename: uniqueFilename,
+            filename: safeFilename,
             contentType: file.type,
             base64Data
           })
@@ -73,6 +75,7 @@ export default function BulletinBoard() {
         
         const data = await res.json();
         if (res.ok) {
+          // 畫面上與資料庫中依然保留原始的中文檔名 (file.name)
           setAttachments(prev => [...prev, { name: file.name, url: data.url }]);
         } else {
           alert('上傳失敗: ' + (data.error || '未知錯誤'));
@@ -389,6 +392,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
                   href={att.url} 
                   target="_blank" 
                   rel="noopener noreferrer"
+                  download={att.name}
                   className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${isDark ? 'bg-slate-700 border-slate-600 text-blue-400 hover:bg-slate-600' : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'}`}
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
