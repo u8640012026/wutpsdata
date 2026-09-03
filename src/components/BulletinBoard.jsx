@@ -14,6 +14,7 @@ export default function BulletinBoard() {
   const [expireDays, setExpireDays] = useState('7');
   const [attachments, setAttachments] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [showAll, setShowAll] = useState(false); // 控制是否顯示所有公告
 
   // 權限判斷：校長(1)、主任(2)、組長(3) 或 管理者(0)
   const roleTags = staffData?.role_tags || '';
@@ -245,7 +246,7 @@ export default function BulletinBoard() {
         </div>
       ) : (
         <div className="space-y-4">
-          {announcements.map(ann => (
+          {(showAll ? announcements : announcements.slice(0, 3)).map(ann => (
             <AnnouncementItem 
               key={ann.id} 
               ann={ann} 
@@ -255,6 +256,16 @@ export default function BulletinBoard() {
               onArchive={() => handleArchive(ann.id)}
             />
           ))}
+          
+          {/* 顯示全部 / 收合按鈕 */}
+          {announcements.length > 3 && (
+            <button 
+              onClick={() => setShowAll(!showAll)}
+              className={`w-full py-2.5 rounded-lg text-sm font-bold border transition-colors ${isDark ? 'border-slate-700 text-gray-400 hover:bg-slate-700/50' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+            >
+              {showAll ? '收起公告 (僅顯示最新 3 則)' : `查看全部公告 (共 ${announcements.length} 則)`}
+            </button>
+          )}
         </div>
       )}
     </div>
