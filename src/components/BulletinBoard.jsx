@@ -12,6 +12,8 @@ export default function BulletinBoard() {
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [expireDays, setExpireDays] = useState('7');
+  const [attachments, setAttachments] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   // 權限判斷：校長(1)、主任(2)、組長(3) 或 管理者(0)
   const roleTags = staffData?.role_tags || '';
@@ -40,6 +42,50 @@ export default function BulletinBoard() {
     setIsLoading(false);
   };
 
+  const handleFileSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // 限制 3MB
+    if (file.size > 3 * 1024 * 1024) {
+      alert('為了確保傳輸穩定，單個檔案請勿超過 3MB');
+      e.target.value = '';
+      return;
+    }
+
+    setIsUploading(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const base64Data = evt.target.result.split(',')[1];
+      const uniqueFilename = `${Date.now()}_${file.name}`;
+      
+      try {
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: uniqueFilename,
+            contentType: file.type,
+            base64Data
+          })
+        });
+        
+        const data = await res.json();
+        if (res.ok) {
+          setAttachments(prev => [...prev, { name: file.name, url: data.url }]);
+        } else {
+          alert('上傳失敗: ' + (data.error || '未知錯誤'));
+        }
+      } catch (err) {
+        console.error(err);
+        alert('上傳發生例外錯誤');
+      }
+      setIsUploading(false);
+      e.target.value = '';
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handlePost = async () => {
     if (!newTitle.trim()) return alert('請填寫標題');
     setIsLoading(true);
@@ -60,13 +106,15 @@ export default function BulletinBoard() {
           content: newContent,
           author_uid: currentUserUid,
           author_name: currentUserName,
-          expire_at
+          expire_at,
+          attachments // 傳送附件陣列
         })
       });
       if (res.ok) {
         setIsComposing(false);
         setNewTitle('');
         setNewContent('');
+        setAttachments([]);
         fetchAnnouncements();
       }
     } catch (err) {
@@ -158,15 +206,32 @@ export default function BulletinBoard() {
                 <option value="never">手動下架 (永久)</option>
               </select>
             </div>
-            <div className="flex items-center gap-2 text-xs text-blue-500 font-bold bg-blue-50 dark:bg-slate-900 p-2 rounded">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-              附件功能即將開放
+            
+            <div className="flex flex-col gap-2">
+              <label className={`flex items-center gap-2 text-sm font-bold cursor-pointer transition-colors px-3 py-1.5 rounded-lg border ${isUploading ? 'bg-gray-200 text-gray-500 border-transparent cursor-not-allowed' : 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 dark:bg-slate-700 dark:border-slate-600 dark:text-blue-400 dark:hover:bg-slate-600'}`}>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                {isUploading ? '上傳中...' : '加入附件 (Max 3MB)'}
+                <input type="file" className="sr-only" onChange={handleFileSelect} disabled={isUploading} />
+              </label>
             </div>
           </div>
 
+          {/* 附件列表預覽 */}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {attachments.map((att, i) => (
+                <div key={i} className={`flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-100 text-gray-600 border border-gray-200 dark:bg-slate-700 dark:border-slate-600 dark:text-gray-300`}>
+                  <svg className="w-3 h-3 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                  {att.name}
+                  <button onClick={() => setAttachments(attachments.filter((_, idx) => idx !== i))} className="ml-1 text-red-500 hover:text-red-700 font-bold">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 border-t pt-3 dark:border-slate-700">
-            <button onClick={() => setIsComposing(false)} className={`px-4 py-2 rounded-lg text-sm font-bold ${isDark ? 'bg-slate-700 text-gray-300' : 'bg-gray-200 text-gray-700'}`}>取消</button>
-            <button onClick={handlePost} disabled={isLoading} className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700">{isLoading ? '發布中...' : '確認發布'}</button>
+            <button onClick={() => { setIsComposing(false); setAttachments([]); }} className={`px-4 py-2 rounded-lg text-sm font-bold ${isDark ? 'bg-slate-700 text-gray-300' : 'bg-gray-200 text-gray-700'}`}>取消</button>
+            <button onClick={handlePost} disabled={isLoading || isUploading} className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-400">{isLoading ? '發布中...' : '確認發布'}</button>
           </div>
         </div>
       )}
@@ -303,6 +368,24 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
           <div className={`p-4 text-sm leading-relaxed ${textColor}`}>
             {renderContentWithLinks(ann.content)}
           </div>
+          
+          {/* 附件下載區塊 */}
+          {ann.attachments && ann.attachments.length > 0 && (
+            <div className={`px-4 pb-4 flex flex-wrap gap-2`}>
+              {ann.attachments.map((att, i) => (
+                <a 
+                  key={i} 
+                  href={att.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${isDark ? 'bg-slate-700 border-slate-600 text-blue-400 hover:bg-slate-600' : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'}`}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                  {att.name}
+                </a>
+              ))}
+            </div>
+          )}
           
           {/* 下架按鈕 */}
           {canArchive && (
