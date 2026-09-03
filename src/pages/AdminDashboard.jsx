@@ -103,14 +103,22 @@ export default function AdminDashboard() {
 
         setUploadStatus(`檔案讀取成功，共 ${data.length} 筆資料。開始寫入資料庫...`);
 
-        const formattedData = data.map(row => ({
-          name: row['姓名'] || row.name || '未知',
-          department: row['處室'] || row.department || '',
-          title: row['職務'] || row.title || '',
-          class_assigned: row['任教班級'] || row.class_assigned || '',
-          email: String(row['電子信箱'] || row.email || '').trim(),
-          role_tags: String(row['角色標籤'] || row.role_tags || '')
-        })).filter(item => item.email); // 電子信箱為必填主鍵
+        const formattedData = data.map(rawRow => {
+          // 清理 Excel 表頭可能帶有的隱形空白或換行符號
+          const row = {};
+          for (let key in rawRow) {
+            row[key.trim()] = rawRow[key];
+          }
+          
+          return {
+            name: row['姓名'] || row.name || '未知',
+            department: row['處室'] || row.department || '',
+            title: row['職稱'] || row.title || '',
+            class_assigned: row['任教班級'] || row.class_assigned || '',
+            email: String(row['電子信箱'] || row.email || '').trim(),
+            role_tags: String(row['角色標籤'] || row.role_tags || '')
+          };
+        }).filter(item => item.email); // 電子信箱是必填主鍵
 
         if (formattedData.length === 0) {
           throw new Error('未找到有效資料，請確保包含「電子信箱」欄位');
