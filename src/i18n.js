@@ -1,7 +1,7 @@
 export const translations = {
   zh: {
-    appTitle: "親師通",
-    home: "回首頁",
+    appTitle: "霧小校務",
+    home: "首頁",
     admin: "行政人員",
     teacher: "班級導師",
     parent: "一般家長",

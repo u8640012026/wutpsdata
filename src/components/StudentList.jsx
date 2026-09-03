@@ -13,6 +13,7 @@ export default function StudentList() {
 
   const [selectedClasses, setSelectedClasses] = useState([]);
   const [isViewing, setIsViewing] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   const [activeTab, setActiveTab] = useState('basic');
   const [showHomeschooled, setShowHomeschooled] = useState(false);
@@ -186,8 +187,13 @@ export default function StudentList() {
     ? `${selectedClasses[0]} 學生名冊` 
     : `跨班學生名冊 (共 ${selectedClasses.length} 班)`;
 
+  // 全螢幕樣式切換
+  const containerStyle = isFullscreen
+    ? `fixed inset-0 z-[100] flex flex-col ${isDark ? 'bg-slate-900' : 'bg-stone-50'} pb-2`
+    : `rounded-xl shadow-sm flex flex-col h-[70vh] ${cardBg} border ${borderColor}`;
+
   return (
-    <div className={`rounded-xl shadow-sm flex flex-col h-[70vh] ${cardBg} border ${borderColor}`}>
+    <div className={containerStyle}>
       
       {/* 頂部標題列與返回按鈕 */}
       <div className="flex justify-between items-center p-3 border-b border-slate-200 dark:border-slate-700 flex-wrap gap-2">
@@ -205,7 +211,25 @@ export default function StudentList() {
           <h3 className={`text-lg font-bold ${textColor}`}>🧑‍🎓 {titleText}</h3>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {/* 全螢幕切換按鈕 */}
+          <button 
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-slate-700 dark:text-blue-400 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-slate-600"
+          >
+            {isFullscreen ? (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                縮小還原
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                全螢幕展開
+              </>
+            )}
+          </button>
+
           <label className="flex items-center gap-2 cursor-pointer bg-stone-50 dark:bg-slate-700 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600">
             <input 
               type="checkbox" 
@@ -222,8 +246,9 @@ export default function StudentList() {
       </div>
 
       {/* Excel-like Data Table 區塊 */}
+      {/* 調整為 text-base 讓手機版字體更大更清晰 */}
       <div className="flex-1 overflow-auto relative scrollbar-hide">
-        <table className="w-full text-sm text-left whitespace-nowrap">
+        <table className="w-full text-base text-left whitespace-nowrap">
           <thead className={`sticky top-0 z-20 ${tableHeaderBg} shadow-sm`}>
             <tr>
               {/* 凍結的左側第一欄 */}
@@ -256,14 +281,14 @@ export default function StudentList() {
                   {/* 凍結的左側儲存格 */}
                   <td className={`sticky left-0 z-10 p-3 border-r ${borderColor} ${stickyLeftBg} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-gray-500 dark:text-gray-400 w-8">{student.grade}{student.class_name}</span>
-                      <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">
+                      <span className="text-sm font-bold text-gray-500 dark:text-gray-400 w-8">{student.grade}{student.class_name}</span>
+                      <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-sm font-bold">
                         {student.seat_number}
                       </span>
-                      <span className={`font-bold ${textColor} w-16 truncate`}>{student.name}</span>
+                      <span className={`font-bold ${textColor} w-20 truncate`}>{student.name}</span>
                       {/* 若為自學生，加上小標籤 */}
                       {[student.enroll_type, ...Object.values(details)].some(v => String(v||'').includes('自學') || String(v||'').includes('在家')) && (
-                        <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded ml-1">自學</span>
+                        <span className="text-[11px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded ml-1">自學</span>
                       )}
                     </div>
                   </td>
@@ -278,7 +303,7 @@ export default function StudentList() {
                     if (col === '生日') val = formatExcelDate(val);
 
                     return (
-                      <td key={col} className={`p-3 border-r ${borderColor} text-gray-600 dark:text-gray-300 max-w-[200px] truncate`}>
+                      <td key={col} className={`p-3 border-r ${borderColor} text-gray-600 dark:text-gray-300 max-w-[250px] truncate`}>
                         {val || '-'}
                       </td>
                     );
@@ -291,12 +316,12 @@ export default function StudentList() {
       </div>
 
       {/* Excel 底部切換頁籤 (Bottom Tabs) */}
-      <div className={`flex overflow-x-auto p-2 gap-1 border-t ${borderColor} bg-gray-100 dark:bg-slate-900 scrollbar-hide`}>
+      <div className={`flex overflow-x-auto p-2 gap-2 border-t ${borderColor} bg-gray-100 dark:bg-slate-900 scrollbar-hide`}>
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`whitespace-nowrap px-4 py-2 rounded-t-lg font-bold text-sm transition-all border border-b-0 ${
+            className={`whitespace-nowrap px-4 py-2.5 rounded-t-lg font-bold text-base transition-all border border-b-0 ${
               activeTab === tab.id 
                 ? `${cardBg} text-emerald-600 ${borderColor} shadow-[0_-2px_5px_rgba(0,0,0,0.05)] border-b-transparent z-10` 
                 : 'bg-gray-200 dark:bg-slate-800 text-gray-500 border-transparent hover:bg-gray-300 dark:hover:bg-slate-700'
