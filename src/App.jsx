@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
 import LiffLogin from './components/LiffLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import TeacherDashboard from './pages/TeacherDashboard';
@@ -6,6 +6,7 @@ import ParentDashboard from './pages/ParentDashboard';
 import RepairDashboard from './pages/RepairDashboard';
 import { translations } from './i18n';
 import liff from '@line/liff';
+import { LayoutDashboard, Wrench, Sun, Moon, Languages, LogOut, User, ChevronDown } from 'lucide-react';
 
 export const AppContext = createContext();
 export const useApp = () => useContext(AppContext);
@@ -14,17 +15,27 @@ const LIFF_ID = '2011376584-Ia2rhpXU';
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userRole, setUserRole] = useState(null); // 'admin', 'teacher', 'parent'
+  const [userRole, setUserRole] = useState(null);
   const [staffData, setStaffData] = useState(null);
   const [lang, setLang] = useState('zh');
   const [isDark, setIsDark] = useState(false);
-  const [currentTab, setCurrentTab] = useState('home'); // 'home', 'repairs', 'profile'
-  
+  const [currentTab, setCurrentTab] = useState('home');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
   const [liffProfile, setLiffProfile] = useState(null);
   const [isLiffInit, setIsLiffInit] = useState(false);
   const [isCheckingRole, setIsCheckingRole] = useState(true);
 
   const t = translations[lang];
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   useEffect(() => {
     liff.init({ liffId: LIFF_ID }).then(() => {
@@ -73,6 +84,7 @@ function App() {
     setStaffData(null);
     setIsLoggedIn(false);
     setCurrentTab('home');
+    setMenuOpen(false);
   };
 
   const toggleTheme = () => setIsDark(!isDark);
@@ -80,14 +92,78 @@ function App() {
 
   const contextValue = { lang, isDark, t, handleLogout, liffProfile, staffData, userRole };
 
-  // 全域背景使用質感色
   return (
     <AppContext.Provider value={contextValue}>
-      <div className={`min-h-[100dvh] flex flex-col ${isDark ? 'dark bg-slate-900 text-gray-100' : 'bg-stone-50 text-gray-800'}`}>
-        
-        {/* 主要內容區塊，保留底部 pb-20 以免被 Navbar 遮擋。加入 max-w-6xl 支援電腦版大螢幕 */}
-        <main className={`flex-1 w-full mx-auto ${isLoggedIn ? 'max-w-6xl pb-24 pt-4 px-4 sm:px-8' : 'max-w-md p-0'}`}>
-          
+      <div className={`min-h-[100dvh] flex flex-col ${isDark ? 'dark bg-slate-950 text-stone-100' : 'bg-stone-50 text-stone-900'}`}>
+
+        {/* ── 頂部 Header（毛玻璃固定）── */}
+        {isLoggedIn && (
+          <header className={`fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-between px-4 border-b backdrop-blur-md ${isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-white/90 border-stone-200'}`}>
+            {/* 左：品牌標識 */}
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-emerald-700 flex items-center justify-center flex-shrink-0">
+                <LayoutDashboard size={14} className="text-white" />
+              </div>
+              <span className={`font-extrabold text-sm tracking-tight ${isDark ? 'text-stone-100' : 'text-stone-900'}`}>霧小校務系統</span>
+            </div>
+
+            {/* 右：功能按鈕群 */}
+            <div className="flex items-center gap-2">
+              {/* 語系切換膠囊 */}
+              <button
+                onClick={toggleLang}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-bold border transition-colors ${isDark ? 'border-slate-700 text-stone-300 hover:bg-slate-800' : 'border-stone-200 text-stone-600 hover:bg-stone-100'}`}
+              >
+                <Languages size={12} />
+                {lang === 'zh' ? 'EN' : '中'}
+              </button>
+
+              {/* 日夜切換 */}
+              <button
+                onClick={toggleTheme}
+                className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors ${isDark ? 'border-slate-700 text-amber-400 hover:bg-slate-800' : 'border-stone-200 text-stone-600 hover:bg-stone-100'}`}
+              >
+                {isDark ? <Sun size={15} /> : <Moon size={15} />}
+              </button>
+
+              {/* 個人頭像 + 下拉選單 */}
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  className="flex items-center gap-1"
+                >
+                  {liffProfile
+                    ? <img src={liffProfile.pictureUrl} alt="profile" className="w-8 h-8 rounded-full border-2 border-emerald-500 object-cover" />
+                    : <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 border-emerald-500 ${isDark ? 'bg-slate-700' : 'bg-stone-100'}`}><User size={15} /></div>
+                  }
+                  <ChevronDown size={12} className={`transition-transform duration-200 ${menuOpen ? 'rotate-180' : ''} ${isDark ? 'text-stone-400' : 'text-stone-500'}`} />
+                </button>
+
+                {/* 下拉卡片 */}
+                {menuOpen && (
+                  <div className={`absolute right-0 top-11 w-56 rounded-xl shadow-2xl border overflow-hidden z-[100] ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-stone-200'}`}>
+                    <div className={`px-4 py-3 border-b ${isDark ? 'border-slate-800 bg-slate-800/50' : 'border-stone-100 bg-stone-50'}`}>
+                      <p className={`font-bold text-sm truncate ${isDark ? 'text-stone-100' : 'text-stone-900'}`}>{liffProfile?.displayName || staffData?.name || 'Demo 模式'}</p>
+                      <p className={`text-xs mt-0.5 ${isDark ? 'text-stone-500' : 'text-stone-400'}`}>{staffData?.title || t[userRole] || ''}</p>
+                      {staffData?.role_tags && <p className="text-xs text-emerald-600 font-bold mt-1">權限標籤：{staffData.role_tags}</p>}
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-500 transition-colors ${isDark ? 'hover:bg-red-950/30' : 'hover:bg-red-50'}`}
+                    >
+                      <LogOut size={15} />
+                      登出系統
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </header>
+        )}
+
+        {/* ── 主內容區（Header 高 3.5rem + 8px 間距 = pt-[60px]）── */}
+        <main className={`flex-1 w-full mx-auto ${isLoggedIn ? 'max-w-6xl pb-24 pt-[60px] px-4 sm:px-8' : 'max-w-md p-0'}`}>
+
           {isCheckingRole && (
             <div className="flex flex-col items-center justify-center min-h-[100dvh]">
               <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
@@ -98,13 +174,9 @@ function App() {
           {!isCheckingRole && !isLoggedIn && (
             <LiffLogin onLogin={handleLogin} toggleLang={toggleLang} toggleTheme={toggleTheme} lang={lang} isDark={isDark} t={t} liffProfile={liffProfile} isLiffInit={isLiffInit} />
           )}
-          
+
           {!isCheckingRole && isLoggedIn && currentTab === 'home' && (
             <div className="animate-fade-in">
-              <div className="flex justify-between items-center mb-6">
-                <h1 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.appTitle}</h1>
-                {liffProfile && <img src={liffProfile.pictureUrl} alt="profile" className="w-10 h-10 rounded-full shadow-sm" />}
-              </div>
               {userRole === 'admin' && <AdminDashboard />}
               {userRole === 'teacher' && <TeacherDashboard />}
               {userRole === 'parent' && <ParentDashboard />}
@@ -112,77 +184,38 @@ function App() {
           )}
 
           {isLoggedIn && currentTab === 'repairs' && (
-             <div className="animate-fade-in">
-               <RepairDashboard />
-             </div>
-          )}
-
-          {isLoggedIn && currentTab === 'profile' && (
-             <div className="animate-fade-in space-y-6">
-               <h2 className={`text-2xl font-extrabold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>個人設定</h2>
-               
-               <div className={`${isDark ? 'bg-slate-800' : 'bg-white'} rounded-2xl p-6 shadow-sm text-center`}>
-                 {liffProfile ? (
-                   <>
-                    <img src={liffProfile.pictureUrl} className="w-20 h-20 rounded-full mx-auto mb-3 shadow-md border-2 border-emerald-500" />
-                    <h3 className="font-bold text-lg">{liffProfile.displayName}</h3>
-                   </>
-                 ) : (
-                   <div className="w-20 h-20 rounded-full bg-gray-200 mx-auto mb-3 flex items-center justify-center text-gray-500">Demo</div>
-                 )}
-                 <p className="text-sm text-gray-500 mt-1">權限群組: {t[userRole]}</p>
-                 {staffData && (
-                   <p className="text-xs text-emerald-600 mt-1 font-bold">標籤: {staffData.role_tags || '無'}</p>
-                 )}
-               </div>
-
-               <div className={`${isDark ? 'bg-slate-800' : 'bg-white'} rounded-2xl p-4 shadow-sm space-y-2`}>
-                 <button onClick={toggleLang} className={`w-full text-left p-4 rounded-xl active:scale-[0.98] transition-all flex justify-between font-bold ${isDark ? 'hover:bg-slate-700' : 'hover:bg-stone-50'}`}>
-                   <span>切換語系 (Language)</span>
-                   <span className="text-emerald-600">{lang === 'zh' ? '中文' : 'English'}</span>
-                 </button>
-                 <button onClick={toggleTheme} className={`w-full text-left p-4 rounded-xl active:scale-[0.98] transition-all flex justify-between font-bold ${isDark ? 'hover:bg-slate-700' : 'hover:bg-stone-50'}`}>
-                   <span>深色模式 (Dark Mode)</span>
-                   <span className="text-emerald-600">{isDark ? '開啟' : '關閉'}</span>
-                 </button>
-               </div>
-
-               <button onClick={handleLogout} className="w-full py-4 bg-red-100 text-red-600 font-bold rounded-2xl shadow-sm active:scale-[0.98] transition-all hover:bg-red-200">
-                 登出系統
-               </button>
-             </div>
+            <div className="animate-fade-in">
+              <RepairDashboard />
+            </div>
           )}
         </main>
 
-        {/* 底部導覽列 (App-like Bottom Tab Bar) */}
+        {/* ── 底部導覽列（毛玻璃，全寬，僅 2 個分頁）── */}
         {isLoggedIn && (
-          <nav className={`fixed bottom-0 w-full max-w-md left-1/2 -translate-x-1/2 flex justify-around items-center h-16 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] rounded-t-2xl px-2 z-50 ${isDark ? 'bg-slate-800 border-t border-slate-700' : 'bg-white'}`}>
-            <button 
+          <nav className={`fixed bottom-0 left-0 right-0 z-50 h-16 flex justify-around items-center border-t backdrop-blur-md ${isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-stone-200'}`}>
+            <button
               onClick={() => setCurrentTab('home')}
-              className={`flex flex-col items-center justify-center w-full h-full space-y-1 active:scale-95 transition-transform ${currentTab === 'home' ? 'text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`flex flex-col items-center justify-center gap-1 w-full h-full transition-all active:scale-95 ${currentTab === 'home' ? 'text-emerald-700' : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-400 hover:text-stone-600'}`}
             >
-              <svg className="w-6 h-6" fill={currentTab === 'home' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-              <span className="text-[10px] font-bold">首頁</span>
+              <LayoutDashboard size={22} strokeWidth={currentTab === 'home' ? 2.5 : 1.5} />
+              <span className="text-[10px] font-bold">校務行政</span>
             </button>
-            <button 
+
+            <button
               onClick={() => setCurrentTab('repairs')}
-              className={`flex flex-col items-center justify-center w-full h-full space-y-1 active:scale-95 transition-transform ${currentTab === 'repairs' ? 'text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`flex flex-col items-center justify-center gap-1 w-full h-full transition-all active:scale-95 ${currentTab === 'repairs' ? 'text-emerald-700' : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-400 hover:text-stone-600'}`}
             >
-              <svg className="w-6 h-6" fill={currentTab === 'repairs' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-              <span className="text-[10px] font-bold">報修</span>
-            </button>
-            <button 
-              onClick={() => setCurrentTab('profile')}
-              className={`flex flex-col items-center justify-center w-full h-full space-y-1 active:scale-95 transition-transform ${currentTab === 'profile' ? 'text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
-            >
-              <svg className="w-6 h-6" fill={currentTab === 'profile' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-              <span className="text-[10px] font-bold">個人</span>
+              <Wrench size={22} strokeWidth={currentTab === 'repairs' ? 2.5 : 1.5} />
+              <span className="text-[10px] font-bold">修繕採購</span>
             </button>
           </nav>
         )}
+
       </div>
     </AppContext.Provider>
   );
 }
 
 export default App;
+
+
