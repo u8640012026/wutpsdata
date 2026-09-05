@@ -216,8 +216,8 @@ ${userMessage}
       );
 
       if (geminiRes.ok) {
-        const geminiData = await geminiRes.json();
-        const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+        const parts = geminiData.candidates?.[0]?.content?.parts || [];
+        const text = parts.map(p => p.text || '').join('').trim();
         if (text) {
           return { reply: text, usedModel: model, error: '' };
         }
@@ -280,7 +280,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       service: '霧臺國小校務 LINE Gemini Webhook 運行中',
-      version: '2.2.0',
+      version: '2.3.0',
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
         geminiKeyPrefix: geminiApiKey ? geminiApiKey.slice(0, 6) + '...' : '未設定',
