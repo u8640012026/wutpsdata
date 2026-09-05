@@ -261,7 +261,10 @@ export default async function handler(req, res) {
         });
         if (mRes.ok) {
           const mData = await mRes.json();
-          availableModels = (mData.models || []).map(m => m.name.replace('models/', ''));
+          availableModels = (mData.models || []).map(m => ({
+            name: m.name.replace('models/', ''),
+            methods: m.supportedGenerationMethods || []
+          }));
         } else {
           modelsError = await mRes.text();
         }
@@ -270,14 +273,20 @@ export default async function handler(req, res) {
       }
     }
 
+    const contentModels = availableModels
+      .filter(m => m.methods.includes('generateContent'))
+      .map(m => m.name);
+
     return res.status(200).json({
       service: '霧臺國小校務 LINE Gemini Webhook 運行中',
-      version: '2.1.0',
+      version: '2.2.0',
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
         geminiKeyPrefix: geminiApiKey ? geminiApiKey.slice(0, 6) + '...' : '未設定',
         geminiKeyType: geminiApiKey.startsWith('AQ.') ? 'Google Auth Key (最新標準)' : 'Standard Key',
-        availableModelsCount: availableModels.length,
+        totalModelsCount: availableModels.length,
+        contentModelsCount: contentModels.length,
+        contentModels: contentModels.slice(0, 15),
         modelsSample: availableModels.slice(0, 8),
         modelsError,
         hasLineToken: !!channelAccessToken,
