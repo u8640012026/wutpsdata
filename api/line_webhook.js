@@ -183,15 +183,15 @@ ${knowledgeContext}
 ${userMessage}
 `;
 
-  // 嘗試多種模型端點（優先使用最新 Google AI 陣容）
+  // 嘗試多種模型端點（依據 Google 最新模型清單動態降級，若遭遇 503 高峰期自動切換）
   const candidateModels = [
-    'gemini-2.5-flash',
     'gemini-flash-latest',
-    'gemini-2.0-flash',
-    'gemini-2.5-pro',
-    'gemini-2.0-flash-exp',
-    'gemini-1.5-flash-latest',
-    'gemini-1.5-flash'
+    'gemini-flash-lite-latest',
+    'gemini-3-flash-preview',
+    'gemini-2.5-flash-lite',
+    'gemini-pro-latest',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-3.1-pro-preview'
   ];
 
   const allErrors = {};
