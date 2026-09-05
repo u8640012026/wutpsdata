@@ -28,7 +28,7 @@ const DEFAULT_KNOWLEDGE_BASE = `
 - 二甲：第1節 魯美、第2節 國語、第3節 山活、第4節 數學、第5節 健體、第6節 魯美、第7節 山活
 - 三甲：第1節 國語、第2節 魯美、第3節 族語、第4節 族語、第5節 魯美、第6節 山活、第7節 自學
 - 四甲：第1節 族語、第2節 族語、第3節 國語、第4節 數學、第5節 族語、第6節 族語、第7節 英語
-- 五甲：第1節 國語、第2節 國語、第3節 數學、第4節 數學、第5節 健體、第6節 自然、第7節 社會（導師：皓宇老師。早上為第1至第4節，包含2節國語與2節數學）
+- 五甲：第1節 國語、第2節 國語、第3節 數學、第4節 數學、第5節 健體、第6節 自然、第7節 社會（導師：皓宇老師。早上第1至第4節，皆由皓宇老師授課，包含2節國語與2節數學）
 - 六甲：第1節 國語、第2節 山活、第3節 魯美、第4節 探究、第5節 健體、第6節 族語、第7節 自學
 
 《霧臺校區 星期二 各班課表》
@@ -151,8 +151,8 @@ export default async function handler(req, res) {
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
         geminiKeyPrefix: geminiApiKey ? geminiApiKey.slice(0, 6) + '...' : '未設定',
+        geminiKeyType: geminiApiKey.startsWith('AQ.') ? 'Google Auth Key (最新標準)' : 'Standard Key',
         hasLineToken: !!channelAccessToken,
-        lineTokenPrefix: channelAccessToken ? channelAccessToken.slice(0, 8) + '...' : '未設定',
         hasLineSecret: !!channelSecret
       }
     });
@@ -212,12 +212,12 @@ export default async function handler(req, res) {
           console.warn('DB query note:', dbErr.message);
         }
 
-        // 2. 呼叫 Google Gemini API
+        // 2. 呼叫 Google Gemini API（支援 Google 最新 AQ. Auth Key Header 規格）
         let aiReplyText = '';
         let debugError = '';
 
         if (!geminiApiKey) {
-          debugError = 'Vercel 尚未偵測到 GEMINI_API_KEY。請確認在 Vercel Environment Variables 設定後是否有按下 Redeploy。';
+          debugError = 'Vercel 尚未偵測到 GEMINI_API_KEY。';
         } else {
           const prompt = `
 你現在是「屏東縣霧臺國民小學」（含霧臺校區與勵古百合分校）的官方校務 AI 智慧小助手。
@@ -227,7 +227,7 @@ export default async function handler(req, res) {
 1. 詢問課表或課程時：
    - 務必依據官方課表詳細列出「節次」與「科目名稱」（例如：第 1 節：國語、第 2 節：國語、第 3 節：數學、第 4 節：數學）。
    - 請主動說明該班導師姓名（例如：五甲導師為皓宇老師；五乙導師為家駿老師）。
-   - 說明早上（通常為第 1 至第 4 節）與下午之區隔。
+   - 說明早上（第 1 至第 4 節）與下午之區隔。
 2. 資訊必須嚴謹準確，切勿自行編造不存在的課程或規定。
 3. 若問題超出已知規章或課表範圍，請委婉告知並引導其於上班時間致電霧臺國小洽詢對應處室。
 
@@ -238,38 +238,47 @@ ${knowledgeContext}
 ${userMessage}
 `;
 
-          try {
-            const geminiRes = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: prompt }] }],
-                  generationConfig: {
-                    temperature: 0.2,
-                    maxOutputTokens: 800
-                  }
-                })
-              }
-            );
+          // Google 官方規格：AQ. 新版金鑰必須透過 HTTP Header "x-goog-api-key" 傳遞
+          const candidateModels = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
 
-            if (geminiRes.ok) {
-              const geminiData = await geminiRes.json();
-              aiReplyText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-            } else {
-              const errBody = await geminiRes.text();
-              console.error('Gemini API error:', errBody);
-              debugError = `Gemini API 連線失敗 (HTTP ${geminiRes.status})：${errBody.slice(0, 120)}`;
+          for (const model of candidateModels) {
+            try {
+              const geminiRes = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'x-goog-api-key': geminiApiKey
+                  },
+                  body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                      temperature: 0.2,
+                      maxOutputTokens: 800
+                    }
+                  })
+                }
+              );
+
+              if (geminiRes.ok) {
+                const geminiData = await geminiRes.json();
+                aiReplyText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+                if (aiReplyText) break;
+              } else {
+                const errBody = await geminiRes.text();
+                console.error(`Gemini [${model}] error (${geminiRes.status}):`, errBody);
+                debugError = `Gemini API 回傳錯誤 (${geminiRes.status}): ${errBody.slice(0, 100)}`;
+              }
+            } catch (fetchErr) {
+              debugError = `連線異常: ${fetchErr.message}`;
             }
-          } catch (fetchErr) {
-            debugError = `Gemini 呼叫異常: ${fetchErr.message}`;
           }
         }
 
-        // 若無成功回傳之兜底訊息（含診斷資訊）
+        // 若無成功回傳之兜底訊息
         if (!aiReplyText) {
-          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統除錯訊息】：${debugError || 'Gemini 暫時無回應'}\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
+          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【連線提醒】：${debugError || '正在連線 AI 服務中'}\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
         }
 
         // 3. 透過 LINE Messaging API 免費回覆 (replyMessage)
