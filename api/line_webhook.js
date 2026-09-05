@@ -11,6 +11,7 @@ const DEFAULT_KNOWLEDGE_BASE = `
 【學校基本資訊】
 學校全銜：屏東縣霧臺鄉霧臺國民小學
 校區分佈：包含「霧臺校區」（本校）與「勵古百合分校」。
+學校官方代表號／總機電話：(08) 790-2230
 辦學核心：深耕魯凱民族傳統文化、雙語國際學習、科技教育與安全校園。
 
 【115學年度 全校教師授課總課表（官方正式課表）】
@@ -275,8 +276,9 @@ async function askSchoolAI(userMessage, { geminiApiKey, groqApiKey, forceEngine 
    - 務必依據官方課表詳細列出「節次」與「科目名稱」（例如：第 1 節：國語、第 2 節：國語、第 3 節：數學、第 4 節：數學）。
    - 請主動說明該班導師姓名（例如：五甲導師為皓宇老師；五乙導師為家駿老師）。
    - 說明早上（第 1 至第 4 節）與下午之區隔。
-2. 資訊必須嚴謹準確，切勿自行編造不存在的課程或規定。
+2. 資訊必須嚴謹準確，切勿自行編造不存在的課程、規範或任何資訊。
 3. 若問題超出已知規章或課表範圍，請委婉告知並引導其於上班時間致電霧臺國小洽詢對應處室。
+4. 【學校唯一官方聯絡電話】：若需要提供學校電話，唯一官方總機為「(08) 790-2230」。絕對嚴禁自行編造、揣測或拼湊任何其他電話號碼或分機號碼！
 
 【學校官方校務規章與教師授課總課表資料】：
 ${knowledgeContext}`;
@@ -393,7 +395,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       service: '霧臺國小校務 LINE Webhook 雙引擎系統運行中',
-      version: '3.2.0 (Dual-Engine: Gemini + Groq Qwen)',
+      version: '3.3.0 (Dual-Engine + Official Phone Enforced)',
       architecture: '雙引擎高可用架構 (Google Gemini 主力 + Groq Llama 3.3 秒級自動備援)',
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
@@ -462,7 +464,7 @@ export default async function handler(req, res) {
 
         // 若無成功回傳之兜底訊息
         if (!aiReplyText) {
-          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統提醒】：正在連線 AI 服務中，若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
+          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統提醒】：正在連線 AI 服務中，若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機 (08) 790-2230 洽詢，謝謝！`;
         }
 
         // 測試用模式（若 replyToken 為 test，直接將回答回傳於 API 回應中方便診斷）
