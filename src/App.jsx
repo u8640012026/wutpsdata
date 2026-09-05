@@ -151,9 +151,19 @@ function App() {
                 {menuOpen && (
                   <div className={`absolute right-0 top-11 w-56 rounded-xl shadow-2xl border overflow-hidden z-[100] ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-stone-200'}`}>
                     <div className={`px-4 py-3 border-b ${isDark ? 'border-slate-800 bg-slate-800/50' : 'border-stone-100 bg-stone-50'}`}>
-                      <p className={`font-bold text-sm truncate ${isDark ? 'text-stone-100' : 'text-stone-900'}`}>{liffProfile?.displayName || staffData?.name || 'Demo 模式'}</p>
-                      <p className={`text-xs mt-0.5 ${isDark ? 'text-stone-500' : 'text-stone-400'}`}>{staffData?.title || t[userRole] || ''}</p>
-                      {staffData?.role_tags && <p className="text-xs text-emerald-600 font-bold mt-1">權限標籤：{staffData.role_tags}</p>}
+                      <p className={`font-bold text-sm truncate ${isDark ? 'text-stone-100' : 'text-stone-900'}`}>
+                        {liffProfile?.displayName || staffData?.name || 'Demo 模式'}
+                      </p>
+                      <p className={`text-xs mt-0.5 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>
+                        {staffData?.department ? `${staffData.department} · ${staffData.title || ''}` : (staffData?.title || t[userRole] || '')}
+                      </p>
+                      {(staffData?.role_tags?.includes('0') || staffData?.email?.includes('u864001')) && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                            最高權限 (Role 0)
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={handleLogout}
