@@ -183,15 +183,12 @@ ${knowledgeContext}
 ${userMessage}
 `;
 
-  // 嘗試多種模型端點（依據 Google 最新模型清單動態降級，若遭遇 503 高峰期自動切換）
+  // 嘗試多種模型端點（優先使用最穩定且不塞車的 Flash-Lite 陣容）
   const candidateModels = [
-    'gemini-flash-latest',
     'gemini-flash-lite-latest',
-    'gemini-3-flash-preview',
-    'gemini-2.5-flash-lite',
-    'gemini-pro-latest',
+    'gemini-flash-latest',
     'gemini-3.1-flash-lite-preview',
-    'gemini-3.1-pro-preview'
+    'gemini-3-flash-preview'
   ];
 
   const allErrors = {};
@@ -216,6 +213,7 @@ ${userMessage}
       );
 
       if (geminiRes.ok) {
+        const geminiData = await geminiRes.json();
         const parts = geminiData.candidates?.[0]?.content?.parts || [];
         const text = parts.map(p => p.text || '').join('').trim();
         if (text) {
@@ -280,7 +278,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       service: '霧臺國小校務 LINE Gemini Webhook 運行中',
-      version: '2.3.0',
+      version: '2.4.0',
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
         geminiKeyPrefix: geminiApiKey ? geminiApiKey.slice(0, 6) + '...' : '未設定',
