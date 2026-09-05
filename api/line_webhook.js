@@ -370,9 +370,27 @@ export default async function handler(req, res) {
       }
     }
 
+    let availableGroqModels = [];
+    let groqError = null;
+    if (groqApiKey) {
+      try {
+        const gRes = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { Authorization: `Bearer ${groqApiKey}` }
+        });
+        if (gRes.ok) {
+          const gData = await gRes.json();
+          availableGroqModels = (gData.data || []).map(m => m.id);
+        } else {
+          groqError = await gRes.text();
+        }
+      } catch (e) {
+        groqError = e.message;
+      }
+    }
+
     return res.status(200).json({
       service: '霧臺國小校務 LINE Webhook 雙引擎系統運行中',
-      version: '3.0.0 (Dual-Engine: Gemini + Groq)',
+      version: '3.1.0 (Dual-Engine: Gemini + Groq)',
       architecture: '雙引擎高可用架構 (Google Gemini 主力 + Groq Llama 3.3 秒級自動備援)',
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
@@ -380,6 +398,8 @@ export default async function handler(req, res) {
         geminiKeyType: geminiApiKey.startsWith('AQ.') ? 'Google Auth Key (最新標準)' : 'Standard Key',
         hasGroqKey: !!groqApiKey,
         groqKeyPrefix: groqApiKey ? groqApiKey.slice(0, 6) + '...' : '未設定',
+        availableGroqModels,
+        groqError,
         availableGeminiModelsCount: availableGeminiModels.length,
         modelsError,
         hasLineToken: !!channelAccessToken,
