@@ -140,12 +140,118 @@ const DEFAULT_KNOWLEDGE_BASE = `
 推動魯凱歲時祭儀（小米收穫祭、搭鞦韆祭典、傳統織布工藝、石板屋修繕等）專案文化課程。
 `;
 
+// 核心 AI 問答函數：檢索知識庫並向 Google Gemini 模型提問
+async function askSchoolAI(userMessage, geminiApiKey) {
+  if (!geminiApiKey) {
+    return { reply: '', usedModel: '', error: 'Vercel 尚未偵測到 GEMINI_API_KEY。' };
+  }
+
+  // 1. 檢索知識庫（預設官方課表規章 + Supabase 自訂上傳檔案）
+  let knowledgeContext = DEFAULT_KNOWLEDGE_BASE;
+  try {
+    const { data: brainDocs } = await supabase
+      .from('brain_documents')
+      .select('title, extracted_text, summary')
+      .limit(10);
+    
+    if (brainDocs && brainDocs.length > 0) {
+      const extraKnowledge = brainDocs
+        .map(d => `【自訂上傳文件：${d.title}】\n${d.summary || d.extracted_text || ''}`)
+        .join('\n\n');
+      knowledgeContext += '\n\n' + extraKnowledge;
+    }
+  } catch (dbErr) {
+    console.warn('DB query note:', dbErr.message);
+  }
+
+  const prompt = `
+你現在是「屏東縣霧臺國民小學」（含霧臺校區與勵古百合分校）的官方校務 AI 智慧小助手。
+請嚴格依據下方所附的【學校官方校務規章與教師授課總課表資料】，以親切、溫暖、有禮且條理分明的繁體中文回答提問。
+
+【回答守則】：
+1. 詢問課表或課程時：
+   - 務必依據官方課表詳細列出「節次」與「科目名稱」（例如：第 1 節：國語、第 2 節：國語、第 3 節：數學、第 4 節：數學）。
+   - 請主動說明該班導師姓名（例如：五甲導師為皓宇老師；五乙導師為家駿老師）。
+   - 說明早上（第 1 至第 4 節）與下午之區隔。
+2. 資訊必須嚴謹準確，切勿自行編造不存在的課程或規定。
+3. 若問題超出已知規章或課表範圍，請委婉告知並引導其於上班時間致電霧臺國小洽詢對應處室。
+
+【學校官方校務規章與教師授課總課表資料】：
+${knowledgeContext}
+
+【使用者提問】：
+${userMessage}
+`;
+
+  // 嘗試多種模型端點（優先使用最新 Google AI 陣容）
+  const candidateModels = [
+    'gemini-2.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.0-flash',
+    'gemini-2.5-pro',
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash'
+  ];
+
+  let debugError = '';
+  for (const model of candidateModels) {
+    try {
+      const geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': geminiApiKey
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 800
+            }
+          })
+        }
+      );
+
+      if (geminiRes.ok) {
+        const geminiData = await geminiRes.json();
+        const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+        if (text) {
+          return { reply: text, usedModel: model, error: '' };
+        }
+      } else {
+        const errBody = await geminiRes.text();
+        debugError = `[${model} 錯誤 ${geminiRes.status}]: ${errBody.slice(0, 120)}`;
+      }
+    } catch (fetchErr) {
+      debugError = `連線異常: ${fetchErr.message}`;
+    }
+  }
+
+  return { reply: '', usedModel: '', error: debugError };
+}
+
 export default async function handler(req, res) {
   const channelSecret = (process.env.LINE_CHANNEL_SECRET || '').trim();
   const channelAccessToken = (process.env.LINE_CHANNEL_ACCESS_TOKEN || '').trim();
   const geminiApiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 
   if (req.method === 'GET') {
+    // 支援直接透過 URL 測試問答：GET /api/line_webhook?q=五年級甲班星期一早上有哪些課
+    const testQ = req.query?.q || req.query?.test;
+    if (testQ) {
+      const aiResult = await askSchoolAI(testQ, geminiApiKey);
+      return res.status(200).json({
+        service: '霧臺國小校務 LINE Gemini Webhook 測試問答',
+        question: testQ,
+        answer: aiResult.reply,
+        usedModel: aiResult.usedModel,
+        debugError: aiResult.error
+      });
+    }
+
     let availableModels = [];
     let modelsError = null;
     if (geminiApiKey) {
@@ -166,6 +272,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       service: '霧臺國小校務 LINE Gemini Webhook 運行中',
+      version: '2.1.0',
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
         geminiKeyPrefix: geminiApiKey ? geminiApiKey.slice(0, 6) + '...' : '未設定',
@@ -201,7 +308,17 @@ export default async function handler(req, res) {
     }
   }
 
-  const events = req.body?.events || [];
+  // 容錯解析 Body
+  let bodyData = req.body;
+  if (typeof bodyData === 'string') {
+    try {
+      bodyData = JSON.parse(bodyData);
+    } catch (e) {
+      console.error('Body parse error:', e);
+    }
+  }
+
+  const events = bodyData?.events || [];
   
   // LINE Console 點擊「Verify」測試時會送出空 events，必須立即回傳 200 OK
   if (events.length === 0) {
@@ -210,108 +327,17 @@ export default async function handler(req, res) {
 
   // 處理所有接收到的事件
   for (const event of events) {
-    if (event.type === 'message' && event.message.type === 'text') {
+    if (event.type === 'message' && event.message?.type === 'text') {
       const userMessage = event.message.text.trim();
       const replyToken = event.replyToken;
 
       try {
-        // 1. 檢索知識庫
-        let knowledgeContext = DEFAULT_KNOWLEDGE_BASE;
-        try {
-          const { data: brainDocs } = await supabase
-            .from('brain_documents')
-            .select('title, extracted_text, summary')
-            .limit(10);
-          
-          if (brainDocs && brainDocs.length > 0) {
-            const extraKnowledge = brainDocs
-              .map(d => `【自訂上傳文件：${d.title}】\n${d.summary || d.extracted_text || ''}`)
-              .join('\n\n');
-            knowledgeContext += '\n\n' + extraKnowledge;
-          }
-        } catch (dbErr) {
-          console.warn('DB query note:', dbErr.message);
-        }
-
-        // 2. 呼叫 Google Gemini API（支援 Google 最新 AQ. Auth Key Header 規格）
-        let aiReplyText = '';
-        let debugError = '';
-
-        if (!geminiApiKey) {
-          debugError = 'Vercel 尚未偵測到 GEMINI_API_KEY。';
-        } else {
-          const prompt = `
-你現在是「屏東縣霧臺國民小學」（含霧臺校區與勵古百合分校）的官方校務 AI 智慧小助手。
-請嚴格依據下方所附的【學校官方校務規章與教師授課總課表資料】，以親切、溫暖、有禮且條理分明的繁體中文回答提問。
-
-【回答守則】：
-1. 詢問課表或課程時：
-   - 務必依據官方課表詳細列出「節次」與「科目名稱」（例如：第 1 節：國語、第 2 節：國語、第 3 節：數學、第 4 節：數學）。
-   - 請主動說明該班導師姓名（例如：五甲導師為皓宇老師；五乙導師為家駿老師）。
-   - 說明早上（第 1 至第 4 節）與下午之區隔。
-2. 資訊必須嚴謹準確，切勿自行編造不存在的課程或規定。
-3. 若問題超出已知規章或課表範圍，請委婉告知並引導其於上班時間致電霧臺國小洽詢對應處室。
-
-【學校官方校務規章與教師授課總課表資料】：
-${knowledgeContext}
-
-【使用者提問】：
-${userMessage}
-`;
-
-          // 嘗試多種模型端點（優先使用最新 Google AI 陣容）
-          const candidateModels = [
-            'gemini-2.5-flash',
-            'gemini-flash-latest',
-            'gemini-2.0-flash',
-            'gemini-2.5-pro',
-            'gemini-2.0-flash-exp',
-            'gemini-1.5-flash-latest',
-            'gemini-1.5-flash'
-          ];
-
-          let usedModel = '';
-
-          for (const model of candidateModels) {
-            try {
-              const geminiRes = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'x-goog-api-key': geminiApiKey
-                  },
-                  body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                      temperature: 0.2,
-                      maxOutputTokens: 800
-                    }
-                  })
-                }
-              );
-
-              if (geminiRes.ok) {
-                const geminiData = await geminiRes.json();
-                aiReplyText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-                if (aiReplyText) {
-                  usedModel = model;
-                  break;
-                }
-              } else {
-                const errBody = await geminiRes.text();
-                debugError = `[${model} 錯誤 ${geminiRes.status}]: ${errBody.slice(0, 120)}`;
-              }
-            } catch (fetchErr) {
-              debugError = `連線異常: ${fetchErr.message}`;
-            }
-          }
-        }
+        const aiResult = await askSchoolAI(userMessage, geminiApiKey);
+        let aiReplyText = aiResult.reply;
 
         // 若無成功回傳之兜底訊息
         if (!aiReplyText) {
-          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統除錯提醒】：${debugError || '正在連線 AI 服務中'}\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
+          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統除錯提醒】：${aiResult.error || '正在連線 AI 服務中'}\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
         }
 
         // 測試用模式（若 replyToken 為 test，直接將回答回傳於 API 回應中方便診斷）
@@ -319,8 +345,8 @@ ${userMessage}
           return res.status(200).json({
             status: 'ok',
             testReply: aiReplyText,
-            usedModel,
-            debugError
+            usedModel: aiResult.usedModel,
+            debugError: aiResult.error
           });
         }
 
@@ -345,6 +371,13 @@ ${userMessage}
         }
       } catch (eventErr) {
         console.error('Error handling event:', eventErr);
+        if (replyToken === 'test') {
+          return res.status(200).json({
+            status: 'error',
+            error: eventErr.message,
+            stack: eventErr.stack
+          });
+        }
       }
     }
   }
