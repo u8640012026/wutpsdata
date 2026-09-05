@@ -15,8 +15,8 @@ export default function TeacherDashboard() {
   const [showHomeschooled, setShowHomeschooled] = useState(false);
   const { isDark, t } = useApp();
 
-  const textColor = isDark ? 'text-white' : 'text-gray-800';
-  const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
+  const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
+  const subTextColor = isDark ? 'text-stone-300' : 'text-stone-600';
 
   const displayedStudents = mockStudents.filter(s => showHomeschooled || s.enrollType === '在');
 

@@ -25,8 +25,8 @@ export default function ParentDashboard() {
   const { isDark, t } = useApp();
 
   const selectedChild = mockChildren.find(c => c.id === selectedChildId);
-  const textColor = isDark ? 'text-white' : 'text-gray-800';
-  const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
+  const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
+  const subTextColor = isDark ? 'text-stone-300' : 'text-stone-600';
 
   return (
     <div className="space-y-6 pb-8">

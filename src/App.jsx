@@ -38,6 +38,14 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDark]);
+
+  useEffect(() => {
     liff.init({ liffId: LIFF_ID }).then(() => {
       setIsLiffInit(true);
       if (liff.isLoggedIn()) {
@@ -195,7 +203,7 @@ function App() {
           <nav className={`fixed bottom-0 left-0 right-0 z-50 h-16 flex justify-around items-center border-t backdrop-blur-md ${isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-stone-200'}`}>
             <button
               onClick={() => setCurrentTab('home')}
-              className={`flex flex-col items-center justify-center gap-1 w-full h-full transition-all active:scale-95 ${currentTab === 'home' ? 'text-emerald-700' : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-400 hover:text-stone-600'}`}
+              className={`flex flex-col items-center justify-center gap-1 w-full h-full transition-all active:scale-95 ${currentTab === 'home' ? 'text-emerald-700 dark:text-emerald-400' : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-400 hover:text-stone-600'}`}
             >
               <LayoutDashboard size={22} strokeWidth={currentTab === 'home' ? 2.5 : 1.5} />
               <span className="text-[10px] font-bold">校務行政</span>
@@ -203,7 +211,7 @@ function App() {
 
             <button
               onClick={() => setCurrentTab('repairs')}
-              className={`flex flex-col items-center justify-center gap-1 w-full h-full transition-all active:scale-95 ${currentTab === 'repairs' ? 'text-emerald-700' : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-400 hover:text-stone-600'}`}
+              className={`flex flex-col items-center justify-center gap-1 w-full h-full transition-all active:scale-95 ${currentTab === 'repairs' ? 'text-emerald-700 dark:text-emerald-400' : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-400 hover:text-stone-600'}`}
             >
               <Wrench size={22} strokeWidth={currentTab === 'repairs' ? 2.5 : 1.5} />
               <span className="text-[10px] font-bold">修繕採購</span>

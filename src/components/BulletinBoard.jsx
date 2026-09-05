@@ -1,6 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
 import liff from '@line/liff';
+import { 
+  Megaphone, 
+  Plus, 
+  ChevronDown, 
+  Paperclip, 
+  Send, 
+  Download, 
+  FileText, 
+  CheckCircle2, 
+  Clock, 
+  MessageSquare, 
+  AlertCircle, 
+  X, 
+  Check, 
+  Trash2,
+  Archive 
+} from 'lucide-react';
 
 export default function BulletinBoard() {
   const { isDark, staffData, liffProfile } = useApp();
@@ -141,25 +158,33 @@ export default function BulletinBoard() {
     }
   };
 
-  const textColor = isDark ? 'text-gray-100' : 'text-gray-800';
-  const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
-  const cardBg = isDark ? 'bg-slate-800' : 'bg-white';
-  const borderColor = isDark ? 'border-slate-700' : 'border-gray-200';
+  const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
+  const subTextColor = isDark ? 'text-stone-300' : 'text-stone-600';
+  const cardBg = isDark ? 'bg-slate-900' : 'bg-white';
+  const borderColor = isDark ? 'border-slate-800' : 'border-emerald-100';
 
   return (
     <div className="space-y-4">
       {/* 頂部切換與發布按鈕 */}
-      <div className="flex justify-between items-center mb-2">
-        <div className={`flex rounded-lg overflow-hidden border ${borderColor}`}>
+      <div className="flex justify-between items-center mb-2 gap-2 flex-wrap">
+        <div className={`flex rounded-xl overflow-hidden border p-0.5 ${isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-stone-100 border-stone-200'}`}>
           <button 
             onClick={() => setActiveTab('active')}
-            className={`px-4 py-2 text-sm font-bold transition-colors ${activeTab === 'active' ? 'bg-blue-600 text-white' : `${isDark ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}`}
+            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
+              activeTab === 'active' 
+                ? 'bg-emerald-700 text-white shadow-sm' 
+                : `${isDark ? 'text-stone-300 hover:text-white' : 'text-stone-600 hover:text-stone-900'}`
+            }`}
           >
             最新公告
           </button>
           <button 
             onClick={() => setActiveTab('history')}
-            className={`px-4 py-2 text-sm font-bold transition-colors ${activeTab === 'history' ? 'bg-gray-600 text-white' : `${isDark ? 'bg-slate-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}`}
+            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
+              activeTab === 'history' 
+                ? 'bg-stone-600 text-white shadow-sm' 
+                : `${isDark ? 'text-stone-300 hover:text-white' : 'text-stone-600 hover:text-stone-900'}`
+            }`}
           >
             歷史公告
           </button>
@@ -168,9 +193,9 @@ export default function BulletinBoard() {
         {canPost && activeTab === 'active' && !isComposing && (
           <button 
             onClick={() => setIsComposing(true)}
-            className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-sm transition-transform active:scale-95"
+            className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-sm transition-transform active:scale-95"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            <Plus size={14} />
             張貼公告
           </button>
         )}
@@ -178,30 +203,39 @@ export default function BulletinBoard() {
 
       {/* 發布公告表單 */}
       {isComposing && (
-        <div className={`p-4 rounded-xl shadow-sm border-l-4 border-emerald-500 ${cardBg}`}>
-          <h3 className={`font-bold mb-3 ${textColor}`}>📝 張貼新公告</h3>
+        <div className={`p-5 rounded-2xl shadow-sm border-l-4 border-l-emerald-600 border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-stone-200'}`}>
+          <div className="flex items-center gap-2 mb-3">
+            <FileText size={18} className="text-emerald-600 dark:text-emerald-400" />
+            <h3 className={`font-extrabold text-base ${textColor}`}>張貼新公告</h3>
+          </div>
           <input 
             type="text" 
             placeholder="公告標題" 
             value={newTitle}
             onChange={e => setNewTitle(e.target.value)}
-            className={`w-full p-2 mb-3 rounded border text-sm font-bold ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-stone-50 border-gray-300'}`}
+            className={`w-full p-2.5 mb-3 rounded-xl border text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 ${
+              isDark ? 'bg-slate-800 border-slate-700 text-stone-100 placeholder-stone-400' : 'bg-stone-50 border-stone-300 text-stone-900'
+            }`}
           />
           <textarea 
             placeholder="公告內容 (可貼上超連結)" 
             value={newContent}
             onChange={e => setNewContent(e.target.value)}
             rows={4}
-            className={`w-full p-2 mb-3 rounded border text-sm ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-stone-50 border-gray-300'}`}
+            className={`w-full p-2.5 mb-3 rounded-xl border text-sm leading-relaxed outline-none focus:ring-2 focus:ring-emerald-500 ${
+              isDark ? 'bg-slate-800 border-slate-700 text-stone-100 placeholder-stone-400' : 'bg-stone-50 border-stone-300 text-stone-900'
+            }`}
           />
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
             <div className="flex items-center gap-2">
-              <span className={`text-sm font-bold ${subTextColor}`}>自動下架：</span>
+              <span className={`text-xs font-bold ${subTextColor}`}>自動下架：</span>
               <select 
                 value={expireDays}
                 onChange={e => setExpireDays(e.target.value)}
-                className={`p-1.5 rounded border text-sm font-bold outline-none ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-stone-50 border-gray-300'}`}
+                className={`p-1.5 rounded-lg border text-xs font-bold outline-none ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-stone-50 border-stone-300 text-stone-900'
+                }`}
               >
                 <option value="3">3 天後</option>
                 <option value="7">7 天後</option>
@@ -212,8 +246,12 @@ export default function BulletinBoard() {
             </div>
             
             <div className="flex flex-col gap-2">
-              <label className={`flex items-center gap-2 text-sm font-bold cursor-pointer transition-colors px-3 py-1.5 rounded-lg border ${isUploading ? 'bg-gray-200 text-gray-500 border-transparent cursor-not-allowed' : 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 dark:bg-slate-700 dark:border-slate-600 dark:text-blue-400 dark:hover:bg-slate-600'}`}>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+              <label className={`flex items-center gap-1.5 text-xs font-bold cursor-pointer transition-colors px-3 py-1.5 rounded-lg border ${
+                isUploading 
+                  ? 'bg-stone-200 text-stone-500 border-transparent cursor-not-allowed' 
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/60'
+              }`}>
+                <Paperclip size={13} />
                 {isUploading ? '上傳中...' : '加入附件 (Max 3MB)'}
                 <input type="file" className="sr-only" onChange={handleFileSelect} disabled={isUploading} />
               </label>
@@ -224,31 +262,51 @@ export default function BulletinBoard() {
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
               {attachments.map((att, i) => (
-                <div key={i} className={`flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-100 text-gray-600 border border-gray-200 dark:bg-slate-700 dark:border-slate-600 dark:text-gray-300`}>
-                  <svg className="w-3 h-3 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-                  {att.name}
-                  <button onClick={() => setAttachments(attachments.filter((_, idx) => idx !== i))} className="ml-1 text-red-500 hover:text-red-700 font-bold">×</button>
+                <div key={i} className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-stone-300' : 'bg-stone-100 border-stone-200 text-stone-700'
+                }`}>
+                  <Paperclip size={12} className="text-emerald-600 dark:text-emerald-400" />
+                  <span className="truncate max-w-[180px]">{att.name}</span>
+                  <button 
+                    onClick={() => setAttachments(attachments.filter((_, idx) => idx !== i))} 
+                    className="ml-1 text-red-500 hover:text-red-700 font-bold"
+                  >
+                    <X size={12} />
+                  </button>
                 </div>
               ))}
             </div>
           )}
 
-          <div className="flex justify-end gap-2 border-t pt-3 dark:border-slate-700">
-            <button onClick={() => { setIsComposing(false); setAttachments([]); }} className={`px-4 py-2 rounded-lg text-sm font-bold ${isDark ? 'bg-slate-700 text-gray-300' : 'bg-gray-200 text-gray-700'}`}>取消</button>
-            <button onClick={handlePost} disabled={isLoading || isUploading} className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-400">{isLoading ? '發布中...' : '確認發布'}</button>
+          <div className="flex justify-end gap-2 border-t pt-3 border-stone-200 dark:border-slate-800">
+            <button 
+              onClick={() => { setIsComposing(false); setAttachments([]); }} 
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
+                isDark ? 'bg-slate-800 text-stone-300 hover:bg-slate-700' : 'bg-stone-200 text-stone-700 hover:bg-stone-300'
+              }`}
+            >
+              取消
+            </button>
+            <button 
+              onClick={handlePost} 
+              disabled={isLoading || isUploading} 
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-700 text-white hover:bg-emerald-800 disabled:bg-stone-400 shadow-sm transition active:scale-95"
+            >
+              {isLoading ? '發布中...' : '確認發布'}
+            </button>
           </div>
         </div>
       )}
 
       {/* 公告列表 */}
       {isLoading && !isComposing ? (
-        <p className="text-center py-8 text-gray-500 font-bold animate-pulse">載入公告中...</p>
+        <p className="text-center py-8 text-emerald-700 font-bold animate-pulse text-sm">載入公告中...</p>
       ) : announcements.length === 0 ? (
-        <div className={`p-8 text-center rounded-xl border border-dashed ${isDark ? 'border-slate-600' : 'border-gray-300'} ${cardBg}`}>
+        <div className={`p-8 text-center rounded-2xl border border-dashed ${isDark ? 'border-slate-800 bg-slate-900/50' : 'border-emerald-200 bg-emerald-50/50'}`}>
           <p className={subTextColor}>目前沒有{activeTab === 'active' ? '最新' : '歷史'}公告</p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {(showAll ? announcements : announcements.slice(0, 3)).map(ann => (
             <AnnouncementItem 
               key={ann.id} 
@@ -264,7 +322,11 @@ export default function BulletinBoard() {
           {announcements.length > 3 && (
             <button 
               onClick={() => setShowAll(!showAll)}
-              className={`w-full py-2.5 rounded-lg text-sm font-bold border transition-colors ${isDark ? 'border-slate-700 text-gray-400 hover:bg-slate-700/50' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+              className={`w-full py-2.5 rounded-xl text-xs font-bold border transition-colors shadow-sm ${
+                isDark 
+                  ? 'border-slate-800 text-stone-300 bg-slate-900/80 hover:bg-slate-800' 
+                  : 'border-emerald-200 text-emerald-800 bg-white/90 hover:bg-emerald-50'
+              }`}
             >
               {showAll ? '收起公告 (僅顯示最新 3 則)' : `查看全部公告 (共 ${announcements.length} 則)`}
             </button>
@@ -282,10 +344,10 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
 
-  const cardBg = isDark ? 'bg-slate-800' : 'bg-white';
-  const textColor = isDark ? 'text-gray-100' : 'text-gray-800';
-  const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
-  const borderColor = isDark ? 'border-slate-700' : 'border-gray-100';
+  const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
+  const subTextColor = isDark ? 'text-stone-300' : 'text-stone-600';
+  const cardBg = isDark ? 'bg-slate-900' : 'bg-white/95';
+  const borderColor = isDark ? 'border-slate-800' : 'border-emerald-100';
 
   const toggleExpand = () => {
     const nextState = !expanded;
@@ -343,34 +405,38 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     return text.split(urlRegex).map((part, i) => {
       if (part.match(urlRegex)) {
-        return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline break-all">{part}</a>;
+        return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-emerald-600 dark:text-emerald-400 underline break-all font-semibold">{part}</a>;
       }
       return <span key={i} className="whitespace-pre-wrap">{part}</span>;
     });
   };
 
   return (
-    <div className={`rounded-xl shadow-sm border ${borderColor} ${cardBg} overflow-hidden transition-all duration-300`}>
+    <div className={`rounded-2xl shadow-sm border ${borderColor} ${cardBg} overflow-hidden transition-all duration-200 hover:shadow-md`}>
       {/* 點擊標題展開 */}
       <div 
         onClick={toggleExpand}
-        className={`p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 flex flex-col gap-2`}
+        className={`p-4 cursor-pointer transition-colors ${isDark ? 'hover:bg-slate-800/50' : 'hover:bg-emerald-50/40'} flex flex-col gap-2.5`}
       >
         <div className="flex justify-between items-start gap-2">
-          <h4 className={`font-bold text-lg leading-tight ${textColor}`}>{ann.title}</h4>
-          <span className={`text-xs whitespace-nowrap bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded font-bold ${subTextColor}`}>
+          <h4 className={`font-extrabold text-base leading-snug ${textColor}`}>{ann.title}</h4>
+          <span className={`text-[11px] whitespace-nowrap px-2 py-0.5 rounded-full font-bold border ${
+            isDark ? 'bg-slate-800 text-stone-300 border-slate-700' : 'bg-stone-100 text-stone-600 border-stone-200'
+          }`}>
             {formatDate(ann.created_at)}
           </span>
         </div>
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs">
-              {ann.author_name?.[0] || '無'}
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+              isDark ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              {ann.author_name?.[0] || '公'}
             </div>
-            <span className={`text-sm font-bold ${subTextColor}`}>{ann.author_name}</span>
+            <span className={`text-xs font-bold ${subTextColor}`}>{ann.author_name}</span>
           </div>
-          <div className="flex items-center gap-1 text-gray-400">
-            <svg className={`w-5 h-5 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          <div className="flex items-center gap-1 text-stone-400">
+            <ChevronDown size={18} className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
           </div>
         </div>
       </div>
@@ -385,7 +451,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
           
           {/* 附件下載區塊 */}
           {ann.attachments && ann.attachments.length > 0 && (
-            <div className={`px-4 pb-4 flex flex-wrap gap-2`}>
+            <div className="px-4 pb-4 flex flex-wrap gap-2">
               {ann.attachments.map((att, i) => (
                 <a 
                   key={i} 
@@ -393,9 +459,13 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
                   target="_blank" 
                   rel="noopener noreferrer"
                   download={att.name}
-                  className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${isDark ? 'bg-slate-700 border-slate-600 text-blue-400 hover:bg-slate-600' : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'}`}
+                  className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${
+                    isDark 
+                      ? 'bg-slate-800 border-slate-700 text-emerald-300 hover:bg-slate-700' 
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                  }`}
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                  <Download size={13} />
                   {att.name}
                 </a>
               ))}
@@ -404,31 +474,42 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
           
           {/* 下架按鈕 */}
           {canArchive && (
-            <div className={`px-4 pb-4 flex justify-end`}>
-              <button onClick={onArchive} className="text-xs text-red-500 font-bold hover:bg-red-50 dark:hover:bg-slate-700 px-2 py-1 rounded transition-colors">
+            <div className="px-4 pb-3 flex justify-end">
+              <button 
+                onClick={onArchive} 
+                className="flex items-center gap-1 text-xs text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-950/40 px-2.5 py-1 rounded-lg transition-colors"
+              >
+                <Archive size={13} />
                 手動下架此公告
               </button>
             </div>
           )}
 
           {/* 留言區 */}
-          <div className={`bg-gray-50 dark:bg-slate-800/80 p-4 border-t ${borderColor}`}>
-            <h5 className={`text-sm font-bold mb-3 ${subTextColor}`}>回應區</h5>
+          <div className={`p-4 border-t ${borderColor} ${isDark ? 'bg-slate-950/60' : 'bg-stone-50/80'}`}>
+            <h5 className={`text-xs font-bold mb-3 ${subTextColor} flex items-center gap-1.5`}>
+              <MessageSquare size={13} />
+              回應討論
+            </h5>
             
             {loadingComments ? (
-              <p className="text-xs text-center text-gray-400">讀取中...</p>
+              <p className="text-xs text-center text-stone-400 py-2">讀取中...</p>
             ) : (
-              <div className="space-y-3 mb-4 max-h-60 overflow-y-auto scrollbar-hide">
-                {comments.length === 0 && <p className="text-xs text-gray-400 italic">尚無回應，來搶頭香吧！</p>}
+              <div className="space-y-2.5 mb-3.5 max-h-60 overflow-y-auto scrollbar-hide">
+                {comments.length === 0 && <p className="text-xs text-stone-400 italic py-1">尚無回應，歡迎留言討論！</p>}
                 {comments.map(c => (
-                  <div key={c.id} className="flex gap-2">
-                    <div className="w-6 h-6 rounded-full bg-emerald-100 flex-shrink-0 flex items-center justify-center text-emerald-700 font-bold text-xs mt-0.5">
+                  <div key={c.id} className="flex gap-2 items-start">
+                    <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-xs mt-0.5 ${
+                      isDark ? 'bg-emerald-950 text-emerald-300' : 'bg-emerald-100 text-emerald-800'
+                    }`}>
                       {c.author_name?.[0]}
                     </div>
-                    <div className={`flex-1 rounded-2xl rounded-tl-sm px-3 py-2 text-sm ${isDark ? 'bg-slate-700 text-gray-200' : 'bg-white border border-gray-200'}`}>
+                    <div className={`flex-1 rounded-2xl rounded-tl-sm px-3 py-2 text-xs leading-relaxed ${
+                      isDark ? 'bg-slate-800 text-stone-100 border border-slate-700' : 'bg-white text-stone-800 border border-stone-200'
+                    }`}>
                       <div className="flex justify-between items-baseline mb-1">
-                        <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400">{c.author_name}</span>
-                        <span className="text-[10px] text-gray-400">{formatDate(c.created_at)}</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">{c.author_name}</span>
+                        <span className="text-[10px] text-stone-400">{formatDate(c.created_at)}</span>
                       </div>
                       <p className="break-words">{c.content}</p>
                     </div>
@@ -445,14 +526,16 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
                 value={newComment}
                 onChange={e => setNewComment(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handlePostComment()}
-                className={`flex-1 p-2 rounded-full border text-sm px-4 outline-none focus:border-emerald-500 ${isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-gray-300'}`}
+                className={`flex-1 p-2 rounded-full border text-xs px-3.5 outline-none focus:border-emerald-500 ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-stone-100 placeholder-stone-400' : 'bg-white border-stone-300 text-stone-900'
+                }`}
               />
               <button 
                 onClick={handlePostComment}
                 disabled={!newComment.trim()}
-                className="bg-emerald-600 disabled:bg-gray-400 text-white p-2 rounded-full w-9 h-9 flex items-center justify-center transition-colors"
+                className="bg-emerald-700 disabled:bg-stone-300 text-white p-2 rounded-full w-8 h-8 flex items-center justify-center transition-colors flex-shrink-0"
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                <Send size={13} />
               </button>
             </div>
           </div>

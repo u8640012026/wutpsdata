@@ -8,6 +8,20 @@ import RepairDashboard from './RepairDashboard';
 import StaffList from '../components/StaffList';
 import StudentList from '../components/StudentList';
 import BulletinBoard from '../components/BulletinBoard';
+import { 
+  Calendar, 
+  GraduationCap, 
+  Users, 
+  Database, 
+  ShieldCheck, 
+  ArrowLeft, 
+  UploadCloud, 
+  Plus, 
+  CheckCircle2, 
+  AlertCircle, 
+  ChevronRight, 
+  Megaphone 
+} from 'lucide-react';
 
 const mockEvents = [
   { date: '2023-11-01', title: '全校運動會 / Sports Day', description: '請全體師生準時於操場集合 / Gather at the field' },
@@ -149,18 +163,18 @@ export default function AdminDashboard() {
     reader.readAsBinaryString(file);
   };
 
-  const textColor = isDark ? 'text-white' : 'text-gray-800';
-  const subTextColor = isDark ? 'text-gray-400' : 'text-gray-500';
-  const cardBg = isDark ? 'bg-slate-800' : 'bg-white';
+  const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
+  const subTextColor = isDark ? 'text-stone-300' : 'text-stone-600';
+  const cardBg = isDark ? 'bg-slate-900' : 'bg-white';
 
   if (currentView === 'repair') {
     return (
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-bold px-3.5 py-2 rounded-xl shadow-sm transition-colors ${isDark ? 'bg-slate-800 text-blue-400 hover:bg-slate-700' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
         >
-          <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          <ArrowLeft size={16} className="mr-1.5" />
           {t.goBack}
         </button>
         <RepairDashboard />
@@ -173,32 +187,45 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-bold px-3.5 py-2 rounded-xl shadow-sm transition-colors ${isDark ? 'bg-slate-800 text-teal-400 hover:bg-slate-700' : 'bg-teal-50 text-teal-700 hover:bg-teal-100'}`}
         >
-          <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          <ArrowLeft size={16} className="mr-1.5" />
           {t.goBack}
         </button>
 
         <div>
-          <h2 className={`text-2xl font-bold ${textColor}`}>系統資料庫管理</h2>
-          <p className={`text-sm ${subTextColor}`}>限註冊組長與系統管理者存取</p>
+          <h2 className={`text-2xl font-black tracking-tight ${textColor}`}>系統資料庫管理</h2>
+          <p className={`text-sm mt-0.5 ${subTextColor}`}>限註冊組長與系統管理者存取</p>
         </div>
 
         {uploadStatus && (
-          <div className={`p-4 rounded-lg text-sm font-semibold ${uploadStatus.includes('✅') ? 'bg-green-100 text-green-700' : uploadStatus.includes('❌') ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-            {uploadStatus}
+          <div className={`p-4 rounded-xl text-sm font-semibold flex items-center gap-2 border ${
+            uploadStatus.includes('✅') || uploadStatus.includes('成功')
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-800' 
+              : uploadStatus.includes('❌') || uploadStatus.includes('失敗')
+                ? 'bg-red-50 text-red-800 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-800' 
+                : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-800'
+          }`}>
+            {uploadStatus.includes('❌') || uploadStatus.includes('失敗') ? (
+              <AlertCircle size={18} className="flex-shrink-0 text-red-600 dark:text-red-400" />
+            ) : (
+              <CheckCircle2 size={18} className="flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
+            )}
+            <span>{uploadStatus.replace('✅', '').replace('❌', '').trim()}</span>
           </div>
         )}
 
         {/* 學生資料上傳區塊 */}
-        <section className={`rounded-xl shadow-sm p-5 border-l-4 border-blue-500 ${cardBg}`}>
-          <h3 className={`text-lg font-bold mb-1 ${textColor}`}>👦 匯入學生總表</h3>
+        <section className={`rounded-2xl shadow-sm p-5 border-l-4 border-l-sky-500 border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-stone-200'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <GraduationCap size={20} className="text-sky-600 dark:text-sky-400" />
+            <h3 className={`text-lg font-extrabold ${textColor}`}>匯入學生總表</h3>
+          </div>
           <p className={`text-xs mb-4 ${subTextColor}`}>包含學號、年級、班級、醫療、家長等 31 個完整欄位</p>
-          <div className={`border-2 border-dashed rounded-lg p-6 text-center ${isDark ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'} ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}>
-            <svg className={`mx-auto h-8 w-8 mb-2 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            <label className={`cursor-pointer rounded text-white text-sm px-3 py-1.5 ${isLoading ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'}`}>
+          <div className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${isDark ? 'border-slate-700 bg-slate-800/60' : 'border-stone-300 bg-stone-50'} ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            <UploadCloud size={32} className={`mx-auto mb-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`} />
+            <label className={`cursor-pointer inline-flex items-center gap-2 rounded-lg text-white text-sm font-bold px-4 py-2 transition shadow-sm ${isLoading ? 'bg-stone-400 cursor-not-allowed' : 'bg-sky-600 hover:bg-sky-700 active:scale-95'}`}>
+              <UploadCloud size={16} />
               {isLoading ? '處理中...' : '選擇 Excel / CSV 檔案'}
               <input type="file" className="sr-only" accept=".xlsx, .xls, .csv" onChange={handleStudentUpload} disabled={isLoading} />
             </label>
@@ -206,14 +233,16 @@ export default function AdminDashboard() {
         </section>
 
         {/* 教職員資料上傳區塊 */}
-        <section className={`rounded-xl shadow-sm p-5 border-l-4 border-green-500 ${cardBg}`}>
-          <h3 className={`text-lg font-bold mb-1 ${textColor}`}>👨‍🏫 匯入教職員名冊</h3>
-          <p className={`text-xs mb-4 ${subTextColor}`}>用於開通權限，包含姓名、職務、任教班級、信箱</p>
-          <div className={`border-2 border-dashed rounded-lg p-6 text-center ${isDark ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'}`}>
-            <svg className={`mx-auto h-8 w-8 mb-2 ${isDark ? 'text-gray-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            <label className={`cursor-pointer rounded text-white text-sm px-3 py-1.5 ${isLoading ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600'}`}>
+        <section className={`rounded-2xl shadow-sm p-5 border-l-4 border-l-emerald-500 border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-stone-200'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <Users size={20} className="text-emerald-600 dark:text-emerald-400" />
+            <h3 className={`text-lg font-extrabold ${textColor}`}>匯入教職員名冊</h3>
+          </div>
+          <p className={`text-xs mb-4 ${subTextColor}`}>用於開通權限，包含姓名、職稱、任教班級、信箱</p>
+          <div className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${isDark ? 'border-slate-700 bg-slate-800/60' : 'border-stone-300 bg-stone-50'}`}>
+            <UploadCloud size={32} className={`mx-auto mb-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`} />
+            <label className={`cursor-pointer inline-flex items-center gap-2 rounded-lg text-white text-sm font-bold px-4 py-2 transition shadow-sm ${isLoading ? 'bg-stone-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95'}`}>
+              <UploadCloud size={16} />
               {isLoading ? '處理中...' : '選擇 Excel / CSV 檔案'}
               <input type="file" className="sr-only" accept=".xlsx, .xls, .csv" onChange={handleStaffUpload} disabled={isLoading} />
             </label>
@@ -221,33 +250,20 @@ export default function AdminDashboard() {
         </section>
 
         {/* 行事曆設定區塊 */}
-        <section className={`rounded-xl shadow-sm p-5 border-l-4 border-yellow-500 ${cardBg}`}>
-          <h3 className={`text-lg font-bold mb-1 ${textColor}`}>📅 介接 Google 日曆</h3>
+        <section className={`rounded-2xl shadow-sm p-5 border-l-4 border-l-amber-500 border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-stone-200'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <Calendar size={20} className="text-amber-600 dark:text-amber-400" />
+            <h3 className={`text-lg font-extrabold ${textColor}`}>介接 Google 日曆</h3>
+          </div>
           <p className={`text-xs mb-4 ${subTextColor}`}>設定全校行事曆來源</p>
           <div className="space-y-3">
-            <input type="text" placeholder="請輸入 Google Calendar ID" className={`w-full text-sm p-2 border rounded ${isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white'}`} />
-            <input type="text" placeholder="請輸入 API Key" className={`w-full text-sm p-2 border rounded ${isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white'}`} />
-            <button className={`w-full font-semibold py-2 rounded text-sm ${isDark ? 'bg-yellow-900 text-yellow-200' : 'bg-yellow-100 text-yellow-700'}`}>
+            <input type="text" placeholder="請輸入 Google Calendar ID" className={`w-full text-sm p-3 border rounded-xl outline-none focus:ring-2 focus:ring-amber-500 ${isDark ? 'bg-slate-800 border-slate-700 text-stone-100 placeholder-stone-400' : 'bg-stone-50 border-stone-300 text-stone-900'}`} />
+            <input type="text" placeholder="請輸入 API Key" className={`w-full text-sm p-3 border rounded-xl outline-none focus:ring-2 focus:ring-amber-500 ${isDark ? 'bg-slate-800 border-slate-700 text-stone-100 placeholder-stone-400' : 'bg-stone-50 border-stone-300 text-stone-900'}`} />
+            <button className={`w-full font-bold py-2.5 rounded-xl text-sm transition active:scale-[0.99] ${isDark ? 'bg-amber-950/60 text-amber-200 border border-amber-800/60 hover:bg-amber-900/60' : 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200'}`}>
               儲存並同步日曆
             </button>
           </div>
         </section>
-
-      </div>
-    );
-  }
-
-  if (currentView === 'repair') {
-    return (
-      <div className="space-y-6 pb-8">
-        <button 
-          onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
-        >
-          <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-          {t.goBack}
-        </button>
-        <RepairDashboard />
       </div>
     );
   }
@@ -257,35 +273,42 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => { setCurrentView('menu'); setIsEditing(false); }}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-bold px-3.5 py-2 rounded-xl shadow-sm transition-colors ${isDark ? 'bg-slate-800 text-amber-400 hover:bg-slate-700' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
         >
-          <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          <ArrowLeft size={16} className="mr-1.5" />
           {t.goBack}
         </button>
 
-        <div className="flex justify-between items-end">
+        <div className="flex justify-between items-end gap-2 flex-wrap">
           <div>
-            <h2 className={`text-2xl font-bold ${textColor}`}>{t.calendarTitle}</h2>
-            <p className={`text-sm ${subTextColor}`}>{t.calendarDesc}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className={`text-2xl font-black tracking-tight ${textColor}`}>{t.calendarTitle}</h2>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300 dark:border-amber-800">
+                開發樣本 - 尚未串接 Google 日曆
+              </span>
+            </div>
+            <p className={`text-sm mt-1 ${subTextColor}`}>{t.calendarDesc}</p>
           </div>
           <button 
             onClick={() => setIsEditing(!isEditing)}
-            className={`px-4 py-1.5 rounded text-sm font-medium ${
-              isEditing ? (isDark ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-700') : 'bg-red-500 text-white shadow'
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm ${
+              isEditing 
+                ? (isDark ? 'bg-slate-700 text-stone-200' : 'bg-stone-200 text-stone-700') 
+                : 'bg-amber-600 hover:bg-amber-700 text-white'
             }`}
           >
             {isEditing ? t.finishView : t.editMode}
           </button>
         </div>
 
-        <section className={`rounded-xl shadow-sm p-4 ${cardBg}`}>
+        <section className={`rounded-2xl shadow-sm p-5 border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-stone-200'}`}>
           {isEditing && (
-            <div className={`mb-6 p-4 rounded-lg border border-dashed ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-300'}`}>
-              <h4 className={`text-sm font-bold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{t.addEvent}</h4>
-              <div className="space-y-2">
-                <input type="date" className={`w-full text-sm p-2 border rounded ${isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white'}`} />
-                <input type="text" placeholder={t.eventTitle} className={`w-full text-sm p-2 border rounded ${isDark ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white'}`} />
-                <button className={`w-full font-semibold py-2 rounded text-sm ${isDark ? 'bg-red-900 text-red-200' : 'bg-red-100 text-red-600'}`}>
+            <div className={`mb-6 p-4 rounded-xl border border-dashed ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-amber-50/50 border-amber-200'}`}>
+              <h4 className={`text-sm font-bold mb-3 ${isDark ? 'text-stone-200' : 'text-stone-800'}`}>{t.addEvent}</h4>
+              <div className="space-y-3">
+                <input type="date" className={`w-full text-sm p-3 border rounded-xl outline-none focus:ring-2 focus:ring-amber-500 ${isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'}`} />
+                <input type="text" placeholder={t.eventTitle} className={`w-full text-sm p-3 border rounded-xl outline-none focus:ring-2 focus:ring-amber-500 ${isDark ? 'bg-slate-800 border-slate-700 text-stone-100 placeholder-stone-400' : 'bg-white border-stone-300 text-stone-900'}`} />
+                <button className={`w-full font-bold py-2.5 rounded-xl text-sm transition shadow-sm ${isDark ? 'bg-amber-700 hover:bg-amber-800 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'}`}>
                   {t.addCalendar}
                 </button>
               </div>
@@ -302,9 +325,9 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-slate-700 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}
+          className={`flex items-center font-bold px-3.5 py-2 rounded-xl shadow-sm transition-colors ${isDark ? 'bg-slate-800 text-sky-400 hover:bg-slate-700' : 'bg-sky-50 text-sky-700 hover:bg-sky-100'}`}
         >
-          <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          <ArrowLeft size={16} className="mr-1.5" />
           {t.goBack}
         </button>
 
@@ -318,9 +341,9 @@ export default function AdminDashboard() {
       <div className="space-y-6 pb-8">
         <button 
           onClick={() => setCurrentView('menu')}
-          className={`flex items-center font-semibold px-3 py-2 rounded-lg shadow-sm ${isDark ? 'bg-gray-700 text-blue-400' : 'bg-blue-50 text-blue-600'}`}
+          className={`flex items-center font-bold px-3.5 py-2 rounded-xl shadow-sm transition-colors ${isDark ? 'bg-slate-800 text-purple-400 hover:bg-slate-700' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}
         >
-          <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          <ArrowLeft size={16} className="mr-1.5" />
           {t.goBack}
         </button>
         <StaffList />
@@ -330,58 +353,145 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6 pb-8">
+      {/* 頂部標題 */}
       <div>
-        <h2 className={`text-2xl font-bold ${textColor}`}>{t.adminTitle}</h2>
-        <p className={`text-sm ${subTextColor}`}>{t.adminDesc}</p>
+        <h2 className={`text-2xl font-black tracking-tight ${textColor}`}>{t.adminTitle}</h2>
+        <p className={`text-sm mt-0.5 ${subTextColor}`}>{t.adminDesc}</p>
       </div>
 
-      <BulletinBoard />
+      {/* 區塊 1：公告專區 (綠色系) */}
+      <section className={`rounded-2xl p-4 sm:p-5 border transition-all shadow-sm ${
+        isDark 
+          ? 'bg-emerald-950/20 border-emerald-800/40' 
+          : 'bg-emerald-50/70 border-emerald-200/80'
+      }`}>
+        <div className="flex items-center gap-2.5 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+            <Megaphone size={16} />
+          </div>
+          <div>
+            <h3 className={`text-base font-extrabold ${isDark ? 'text-emerald-200' : 'text-emerald-900'}`}>全校公告專區</h3>
+            <p className={`text-xs ${isDark ? 'text-emerald-400/90' : 'text-emerald-700/80'}`}>即時校園通告與重要事項討論</p>
+          </div>
+        </div>
+        <BulletinBoard />
+      </section>
 
-      <div className="grid grid-cols-1 gap-4 mt-6">
+      {/* 區塊 2 & 3：行事曆 (黃色系) 與 學生總覽 (藍色系) */}
+      <div className="grid grid-cols-1 gap-4">
+        {/* 行事曆按鈕區塊 */}
         <button 
           onClick={() => setCurrentView('calendar')}
-          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition active:scale-[0.98] border ${isDark ? 'bg-orange-950/30 hover:bg-orange-900/40 border-orange-900/50' : 'bg-orange-50 hover:bg-orange-100 border-orange-100'}`}
+          className={`p-5 rounded-2xl shadow-sm flex items-center justify-between transition-all active:scale-[0.99] border text-left ${
+            isDark 
+              ? 'bg-amber-950/25 hover:bg-amber-900/35 border-amber-800/40 text-stone-100' 
+              : 'bg-amber-50/90 hover:bg-amber-100/80 border-amber-200/80 text-stone-900'
+          }`}
         >
-          <div className="text-left">
-            <h3 className={`text-lg font-bold ${isDark ? 'text-orange-400' : 'text-orange-700'}`}>{t.calendarTitle} <span className="text-xs font-normal opacity-80">(開發樣本 - 尚未串接 Google)</span></h3>
-            <p className={`text-sm ${isDark ? 'text-orange-500/70' : 'text-orange-600/70'}`}>{t.calendarDesc}</p>
+          <div className="flex items-start gap-3.5 pr-2">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm flex-shrink-0 mt-0.5">
+              <Calendar size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className={`text-lg font-extrabold ${isDark ? 'text-amber-200' : 'text-amber-950'}`}>{t.calendarTitle}</h3>
+                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-200/80 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60">
+                  開發樣本 - 尚未串接 Google 日曆
+                </span>
+              </div>
+              <p className={`text-sm mt-1 leading-relaxed ${isDark ? 'text-amber-300/80' : 'text-amber-800/80'}`}>
+                {t.calendarDesc}，點擊即可瀏覽學校活動與行事排程
+              </p>
+            </div>
           </div>
-          <svg className={`w-6 h-6 ${isDark ? 'text-orange-500' : 'text-orange-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          <ChevronRight size={22} className={`flex-shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
         </button>
 
+        {/* 學生名冊與資料總覽按鈕區塊 */}
         <button 
           onClick={() => setCurrentView('students')}
-          className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition border ${isDark ? 'bg-blue-950/30 hover:bg-blue-900/40 border-blue-900/50' : 'bg-blue-50 hover:bg-blue-100 border-blue-100'}`}
+          className={`p-5 rounded-2xl shadow-sm flex items-center justify-between transition-all active:scale-[0.99] border text-left ${
+            isDark 
+              ? 'bg-sky-950/25 hover:bg-sky-900/35 border-sky-800/40 text-stone-100' 
+              : 'bg-sky-50/90 hover:bg-sky-100/80 border-sky-200/80 text-stone-900'
+          }`}
         >
-          <div className="text-left">
-            <h3 className={`text-lg font-bold ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>{t.rosterTitle}</h3>
-            <p className={`text-sm ${isDark ? 'text-blue-500/70' : 'text-blue-600/70'}`}>{t.rosterDesc}</p>
+          <div className="flex items-start gap-3.5 pr-2">
+            <div className="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center shadow-sm flex-shrink-0 mt-0.5">
+              <GraduationCap size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className={`text-lg font-extrabold ${isDark ? 'text-sky-200' : 'text-sky-950'}`}>{t.rosterTitle}</h3>
+                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-sky-200/80 text-sky-900 dark:bg-sky-900/60 dark:text-sky-200 border border-sky-300 dark:border-sky-700/60">
+                  全校學籍資料
+                </span>
+              </div>
+              <p className={`text-sm mt-1 leading-relaxed ${isDark ? 'text-sky-300/80' : 'text-sky-800/80'}`}>
+                {t.rosterDesc}，支援跨班多選、自學篩選、醫療及身分資料
+              </p>
+            </div>
           </div>
-          <svg className={`w-6 h-6 ${isDark ? 'text-blue-500' : 'text-blue-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          <ChevronRight size={22} className={`flex-shrink-0 ${isDark ? 'text-sky-400' : 'text-sky-600'}`} />
         </button>
 
+        {/* 超級管理員專屬區塊 */}
         {(staffData?.role_tags?.includes('0') || staffData?.email?.includes('u864001')) && (
           <>
+            {/* 教職員名冊與權限管理 */}
             <button 
               onClick={() => setCurrentView('staff_list')}
-              className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white hover:shadow-md'}`}
+              className={`p-5 rounded-2xl shadow-sm flex items-center justify-between transition-all active:scale-[0.99] border text-left ${
+                isDark 
+                  ? 'bg-purple-950/25 hover:bg-purple-900/35 border-purple-800/40 text-stone-100' 
+                  : 'bg-purple-50/90 hover:bg-purple-100/80 border-purple-200/80 text-stone-900'
+              }`}
             >
-              <div className="text-left">
-                <h3 className={`text-lg font-bold text-purple-600`}>👨‍🏫 教職員名冊與權限管理</h3>
-                <p className={`text-sm ${subTextColor}`}>超級管理員專屬：查看綁定狀態與權限</p>
+              <div className="flex items-start gap-3.5 pr-2">
+                <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-sm flex-shrink-0 mt-0.5">
+                  <ShieldCheck size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className={`text-lg font-extrabold ${isDark ? 'text-purple-200' : 'text-purple-950'}`}>教職員名冊與權限管理</h3>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-200/80 text-purple-900 dark:bg-purple-900/60 dark:text-purple-200 border border-purple-300 dark:border-purple-700/60">
+                      超級管理員
+                    </span>
+                  </div>
+                  <p className={`text-sm mt-1 leading-relaxed ${isDark ? 'text-purple-300/80' : 'text-purple-800/80'}`}>
+                    查看全校同仁 LINE 綁定狀態、設定權限與管理帳號
+                  </p>
+                </div>
               </div>
-              <svg className={`w-6 h-6 text-purple-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+              <ChevronRight size={22} className={`flex-shrink-0 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
             </button>
 
+            {/* 系統資料庫匯入區 */}
             <button 
               onClick={() => setCurrentView('import')}
-              className={`p-6 rounded-xl shadow-sm flex items-center justify-between transition ${isDark ? 'bg-slate-800 hover:bg-slate-700 border border-emerald-900' : 'bg-white hover:shadow-md border border-emerald-100'}`}
+              className={`p-5 rounded-2xl shadow-sm flex items-center justify-between transition-all active:scale-[0.99] border text-left ${
+                isDark 
+                  ? 'bg-teal-950/25 hover:bg-teal-900/35 border-teal-800/40 text-stone-100' 
+                  : 'bg-teal-50/90 hover:bg-teal-100/80 border-teal-200/80 text-stone-900'
+              }`}
             >
-              <div className="text-left">
-                <h3 className={`text-lg font-bold text-emerald-600`}>🗄️ 系統資料庫匯入區</h3>
-                <p className={`text-sm ${subTextColor}`}>超級管理員專屬：批次上傳學生與教職員</p>
+              <div className="flex items-start gap-3.5 pr-2">
+                <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-sm flex-shrink-0 mt-0.5">
+                  <Database size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className={`text-lg font-extrabold ${isDark ? 'text-teal-200' : 'text-teal-950'}`}>系統資料庫匯入區</h3>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-teal-200/80 text-teal-900 dark:bg-teal-900/60 dark:text-teal-200 border border-teal-300 dark:border-teal-700/60">
+                      批次更新
+                    </span>
+                  </div>
+                  <p className={`text-sm mt-1 leading-relaxed ${isDark ? 'text-teal-300/80' : 'text-teal-800/80'}`}>
+                    批次上傳學生總表與教職員名冊 Excel / CSV 檔案
+                  </p>
+                </div>
               </div>
-              <svg className={`w-6 h-6 text-emerald-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+              <ChevronRight size={22} className={`flex-shrink-0 ${isDark ? 'text-teal-400' : 'text-teal-600'}`} />
             </button>
           </>
         )}

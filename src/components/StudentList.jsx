@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
 import liff from '@line/liff';
+import { School, GraduationCap, ArrowLeft, Maximize2, Minimize2, Check, Users } from 'lucide-react';
 
 export default function StudentList() {
   const { isDark, staffData } = useApp();
@@ -96,11 +97,11 @@ export default function StudentList() {
     return true;
   });
 
-  const cardBg = isDark ? 'bg-slate-800' : 'bg-white';
-  const textColor = isDark ? 'text-stone-100' : 'text-stone-800';
-  const tableHeaderBg = isDark ? 'bg-slate-700' : 'bg-emerald-100';
-  const stickyLeftBg = isDark ? 'bg-slate-800' : 'bg-white';
-  const borderColor = isDark ? 'border-slate-700' : 'border-emerald-200';
+  const cardBg = isDark ? 'bg-slate-900' : 'bg-white';
+  const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
+  const tableHeaderBg = isDark ? 'bg-slate-800' : 'bg-emerald-100';
+  const stickyLeftBg = isDark ? 'bg-slate-900' : 'bg-white';
+  const borderColor = isDark ? 'border-slate-800' : 'border-emerald-200';
 
   const tabs = [
     { id: 'basic', label: '基本資料', cols: ['性別', '身分證字號', '生日'] }, // 移除就讀狀態
@@ -115,7 +116,7 @@ export default function StudentList() {
   const currentCols = tabs.find(t => t.id === activeTab)?.cols || [];
 
   if (isLoading) {
-    return <p className="text-gray-500 text-center py-8 font-bold animate-pulse">載入學生資料中...</p>;
+    return <p className="text-emerald-700 dark:text-emerald-300 text-center py-8 font-bold animate-pulse text-sm">載入學生資料中...</p>;
   }
 
   // 顯示班級選擇 (若為行政且尚未進入檢視模式)
@@ -128,9 +129,12 @@ export default function StudentList() {
     ];
 
     return (
-      <div className={`rounded-xl shadow-sm p-6 flex flex-col h-[70vh] ${cardBg}`}>
-        <h3 className={`text-xl font-bold mb-2 ${textColor}`}>🏫 請點選要檢視的班級 (可複選)</h3>
-        <p className="text-sm text-gray-500 mb-6">點擊班級按鈕來選取或取消選取，選取完畢後請按下方的「確定」按鈕。</p>
+      <div className={`rounded-2xl shadow-sm p-6 flex flex-col h-[70vh] border ${isDark ? 'border-slate-800' : 'border-stone-200'} ${cardBg}`}>
+        <div className="flex items-center gap-2.5 mb-2">
+          <School size={22} className="text-emerald-600 dark:text-emerald-400" />
+          <h3 className={`text-xl font-black ${textColor}`}>請點選要檢視的班級 (可複選)</h3>
+        </div>
+        <p className={`text-sm mb-6 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>點擊班級按鈕來選取或取消選取，選取完畢後請按下方的「確定」按鈕。</p>
         
         <div className="flex-1 overflow-y-auto space-y-6">
           {classGrid.map((row, rIdx) => (
@@ -196,50 +200,57 @@ export default function StudentList() {
     <div className={containerStyle}>
       
       {/* 頂部標題列與返回按鈕 */}
-      <div className="flex justify-between items-center p-3 border-b border-slate-200 dark:border-slate-700 flex-wrap gap-2">
+      <div className="flex justify-between items-center p-3.5 border-b border-stone-200 dark:border-slate-800 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           {(isAdmin || !isHomeroom) && (
             <button 
               onClick={() => setIsViewing(false)}
-              className="p-1.5 rounded-full bg-gray-100 dark:bg-slate-700 hover:bg-gray-200"
+              className={`p-2 rounded-xl transition shadow-sm ${isDark ? 'bg-slate-800 text-stone-300 hover:bg-slate-700' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
             >
-              <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
+              <ArrowLeft size={16} />
             </button>
           )}
-          <h3 className={`text-lg font-bold ${textColor}`}>🧑‍🎓 {titleText}</h3>
+          <div className="flex items-center gap-2">
+            <GraduationCap size={20} className="text-emerald-600 dark:text-emerald-400" />
+            <h3 className={`text-lg font-extrabold ${textColor}`}>{titleText}</h3>
+          </div>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
           {/* 全螢幕切換按鈕 */}
           <button 
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-slate-700 dark:text-blue-400 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-slate-600"
+            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition-colors ${
+              isDark 
+                ? 'bg-slate-800 text-sky-400 border-slate-700 hover:bg-slate-700' 
+                : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+            }`}
           >
             {isFullscreen ? (
               <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                <Minimize2 size={13} />
                 縮小還原
               </>
             ) : (
               <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                <Maximize2 size={13} />
                 全螢幕展開
               </>
             )}
           </button>
 
-          <label className="flex items-center gap-2 cursor-pointer bg-stone-50 dark:bg-slate-700 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600">
+          <label className={`flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors ${
+            isDark ? 'bg-slate-800 border-slate-700 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-700'
+          }`}>
             <input 
               type="checkbox" 
               checked={showHomeschooled} 
               onChange={(e) => setShowHomeschooled(e.target.checked)} 
-              className="w-4 h-4 text-emerald-600 rounded border-gray-300"
+              className="w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
             />
-            <span className={`text-xs font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>顯示在家自學生</span>
+            <span>顯示在家自學生</span>
           </label>
-          <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-full whitespace-nowrap">
+          <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-3 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800 whitespace-nowrap">
             共 {filteredStudents.length} 人
           </span>
         </div>
@@ -252,12 +263,12 @@ export default function StudentList() {
           <thead className={`sticky top-0 z-20 ${tableHeaderBg} shadow-sm`}>
             <tr>
               {/* 凍結的左側第一欄 */}
-              <th className={`sticky left-0 z-30 p-3 font-extrabold text-emerald-800 dark:text-emerald-300 border-r border-b ${borderColor} ${tableHeaderBg}`}>
+              <th className={`sticky left-0 z-30 p-3 font-extrabold text-emerald-900 dark:text-emerald-200 border-r border-b ${borderColor} ${tableHeaderBg}`}>
                 班級 - 座號 - 姓名
               </th>
               {/* 動態展開的資料欄位 */}
               {currentCols.map(col => (
-                <th key={col} className={`p-3 font-bold text-gray-700 dark:text-gray-200 border-r border-b ${borderColor}`}>
+                <th key={col} className={`p-3 font-bold text-stone-800 dark:text-stone-200 border-r border-b ${borderColor}`}>
                   {col}
                 </th>
               ))}
@@ -266,7 +277,7 @@ export default function StudentList() {
           <tbody>
             {filteredStudents.length === 0 && (
               <tr>
-                <td colSpan={currentCols.length + 1} className="p-8 text-center text-gray-500 font-bold">
+                <td colSpan={currentCols.length + 1} className="p-8 text-center text-stone-400 font-bold">
                   目前無符合條件的學生資料
                 </td>
               </tr>
@@ -274,21 +285,21 @@ export default function StudentList() {
             {filteredStudents.map((student, idx) => {
               const details = student.details || {};
               const isEven = idx % 2 === 0;
-              const rowBg = isDark ? (isEven ? 'bg-slate-800' : 'bg-slate-800/80') : (isEven ? 'bg-white' : 'bg-emerald-50/30');
+              const rowBg = isDark ? (isEven ? 'bg-slate-900' : 'bg-slate-800/40') : (isEven ? 'bg-white' : 'bg-emerald-50/30');
 
               return (
-                <tr key={student.student_id} className={`border-b ${borderColor} ${rowBg} hover:bg-yellow-50 dark:hover:bg-slate-700 transition-colors`}>
+                <tr key={student.student_id} className={`border-b ${borderColor} ${rowBg} hover:bg-amber-50/60 dark:hover:bg-slate-800 transition-colors`}>
                   {/* 凍結的左側儲存格 */}
                   <td className={`sticky left-0 z-10 p-3 border-r ${borderColor} ${stickyLeftBg} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-gray-500 dark:text-gray-400 w-8">{student.grade}{student.class_name}</span>
-                      <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-sm font-bold">
+                      <span className="text-sm font-bold text-stone-400 dark:text-stone-400 w-8">{student.grade}{student.class_name}</span>
+                      <span className="w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center text-sm font-bold">
                         {student.seat_number}
                       </span>
                       <span className={`font-bold ${textColor} w-20 truncate`}>{student.name}</span>
                       {/* 若為自學生，加上小標籤 */}
                       {[student.enroll_type, ...Object.values(details)].some(v => String(v||'').includes('自學') || String(v||'').includes('在家')) && (
-                        <span className="text-[11px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded ml-1">自學</span>
+                        <span className="text-[11px] bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-300 px-1.5 py-0.5 rounded font-bold ml-1">自學</span>
                       )}
                     </div>
                   </td>
@@ -303,7 +314,7 @@ export default function StudentList() {
                     if (col === '生日') val = formatExcelDate(val);
 
                     return (
-                      <td key={col} className={`p-3 border-r ${borderColor} text-gray-600 dark:text-gray-300 max-w-[250px] truncate`}>
+                      <td key={col} className={`p-3 border-r ${borderColor} text-stone-700 dark:text-stone-200 max-w-[250px] truncate`}>
                         {val || '-'}
                       </td>
                     );
@@ -316,15 +327,15 @@ export default function StudentList() {
       </div>
 
       {/* Excel 底部切換頁籤 (Bottom Tabs) */}
-      <div className={`flex overflow-x-auto p-2 gap-2 border-t ${borderColor} bg-gray-100 dark:bg-slate-900 scrollbar-hide`}>
+      <div className={`flex overflow-x-auto p-2 gap-2 border-t ${borderColor} ${isDark ? 'bg-slate-950' : 'bg-stone-100'} scrollbar-hide`}>
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`whitespace-nowrap px-4 py-2.5 rounded-t-lg font-bold text-base transition-all border border-b-0 ${
+            className={`whitespace-nowrap px-4 py-2.5 rounded-t-xl font-bold text-sm transition-all border border-b-0 ${
               activeTab === tab.id 
-                ? `${cardBg} text-emerald-600 ${borderColor} shadow-[0_-2px_5px_rgba(0,0,0,0.05)] border-b-transparent z-10` 
-                : 'bg-gray-200 dark:bg-slate-800 text-gray-500 border-transparent hover:bg-gray-300 dark:hover:bg-slate-700'
+                ? `${cardBg} text-emerald-600 dark:text-emerald-400 ${borderColor} shadow-sm border-b-transparent z-10` 
+                : 'bg-stone-200 dark:bg-slate-800 text-stone-600 dark:text-stone-400 border-transparent hover:bg-stone-300 dark:hover:bg-slate-700'
             }`}
             style={{ marginBottom: activeTab === tab.id ? '-1px' : '0' }}
           >
