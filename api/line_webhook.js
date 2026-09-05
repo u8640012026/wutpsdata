@@ -201,8 +201,11 @@ async function callGroq(systemPrompt, userMessage, groqApiKey) {
   }
 
   const candidateModels = [
-    'llama-3.3-70b-versatile',
-    'llama-3.1-8b-instant'
+    'qwen/qwen3.8-27b',
+    'qwen/qwen3.6-27b',
+    'openai/gpt-oss-120b',
+    'groq/compound',
+    'openai/gpt-oss-20b'
   ];
 
   const errors = {};
@@ -390,7 +393,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       service: '霧臺國小校務 LINE Webhook 雙引擎系統運行中',
-      version: '3.1.0 (Dual-Engine: Gemini + Groq)',
+      version: '3.2.0 (Dual-Engine: Gemini + Groq Qwen)',
       architecture: '雙引擎高可用架構 (Google Gemini 主力 + Groq Llama 3.3 秒級自動備援)',
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
