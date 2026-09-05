@@ -141,19 +141,28 @@ const DEFAULT_KNOWLEDGE_BASE = `
 `;
 
 export default async function handler(req, res) {
+  const channelSecret = (process.env.LINE_CHANNEL_SECRET || '').trim();
+  const channelAccessToken = (process.env.LINE_CHANNEL_ACCESS_TOKEN || '').trim();
+  const geminiApiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+
   if (req.method === 'GET') {
-    return res.status(200).send('霧臺國小校務 LINE Gemini Webhook 運行中');
+    return res.status(200).json({
+      service: '霧臺國小校務 LINE Gemini Webhook 運行中',
+      diagnostics: {
+        hasGeminiKey: !!geminiApiKey,
+        geminiKeyPrefix: geminiApiKey ? geminiApiKey.slice(0, 6) + '...' : '未設定',
+        hasLineToken: !!channelAccessToken,
+        lineTokenPrefix: channelAccessToken ? channelAccessToken.slice(0, 8) + '...' : '未設定',
+        hasLineSecret: !!channelSecret
+      }
+    });
   }
 
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
 
-  const channelSecret = process.env.LINE_CHANNEL_SECRET;
-  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-
-  // LINE 簽名驗證（若有設定 Secret 則進行安全校驗）
+  // LINE 簽名驗證
   const signature = req.headers['x-line-signature'];
   if (channelSecret && signature) {
     try {
@@ -164,10 +173,10 @@ export default async function handler(req, res) {
         .digest('base64');
       
       if (hash !== signature && process.env.NODE_ENV === 'production') {
-        console.warn('Signature verification mismatch, proceeding in fallback');
+        console.warn('Signature verification mismatch, proceeding gracefully');
       }
     } catch (err) {
-      console.error('Signature verification error:', err);
+      console.error('Signature error:', err);
     }
   }
 
@@ -185,7 +194,7 @@ export default async function handler(req, res) {
       const replyToken = event.replyToken;
 
       try {
-        // 1. 檢索知識庫（優先嘗試從 Supabase 大腦讀取自定義上傳之規章）
+        // 1. 檢索知識庫
         let knowledgeContext = DEFAULT_KNOWLEDGE_BASE;
         try {
           const { data: brainDocs } = await supabase
@@ -200,12 +209,16 @@ export default async function handler(req, res) {
             knowledgeContext += '\n\n' + extraKnowledge;
           }
         } catch (dbErr) {
-          console.warn('Database brain retrieval fallback to default:', dbErr.message);
+          console.warn('DB query note:', dbErr.message);
         }
 
         // 2. 呼叫 Google Gemini API
         let aiReplyText = '';
-        if (geminiApiKey) {
+        let debugError = '';
+
+        if (!geminiApiKey) {
+          debugError = 'Vercel 尚未偵測到 GEMINI_API_KEY。請確認在 Vercel Environment Variables 設定後是否有按下 Redeploy。';
+        } else {
           const prompt = `
 你現在是「屏東縣霧臺國民小學」（含霧臺校區與勵古百合分校）的官方校務 AI 智慧小助手。
 請嚴格依據下方所附的【學校官方校務規章與教師授課總課表資料】，以親切、溫暖、有禮且條理分明的繁體中文回答提問。
@@ -225,33 +238,38 @@ ${knowledgeContext}
 ${userMessage}
 `;
 
-          const geminiRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                  temperature: 0.2,
-                  maxOutputTokens: 800
-                }
-              })
-            }
-          );
+          try {
+            const geminiRes = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: {
+                    temperature: 0.2,
+                    maxOutputTokens: 800
+                  }
+                })
+              }
+            );
 
-          if (geminiRes.ok) {
-            const geminiData = await geminiRes.json();
-            aiReplyText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-          } else {
-            const errBody = await geminiRes.text();
-            console.error('Gemini API error:', errBody);
+            if (geminiRes.ok) {
+              const geminiData = await geminiRes.json();
+              aiReplyText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+            } else {
+              const errBody = await geminiRes.text();
+              console.error('Gemini API error:', errBody);
+              debugError = `Gemini API 連線失敗 (HTTP ${geminiRes.status})：${errBody.slice(0, 120)}`;
+            }
+          } catch (fetchErr) {
+            debugError = `Gemini 呼叫異常: ${fetchErr.message}`;
           }
         }
 
-        // 若無 API Key 或連線異常時之安全回覆
+        // 若無成功回傳之兜底訊息（含診斷資訊）
         if (!aiReplyText) {
-          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝您的關心！`;
+          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統除錯訊息】：${debugError || 'Gemini 暫時無回應'}\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
         }
 
         // 3. 透過 LINE Messaging API 免費回覆 (replyMessage)
