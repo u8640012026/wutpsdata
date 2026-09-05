@@ -146,12 +146,33 @@ export default async function handler(req, res) {
   const geminiApiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 
   if (req.method === 'GET') {
+    let availableModels = [];
+    let modelsError = null;
+    if (geminiApiKey) {
+      try {
+        const mRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+          headers: { 'x-goog-api-key': geminiApiKey }
+        });
+        if (mRes.ok) {
+          const mData = await mRes.json();
+          availableModels = (mData.models || []).map(m => m.name.replace('models/', ''));
+        } else {
+          modelsError = await mRes.text();
+        }
+      } catch (e) {
+        modelsError = e.message;
+      }
+    }
+
     return res.status(200).json({
       service: '霧臺國小校務 LINE Gemini Webhook 運行中',
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
         geminiKeyPrefix: geminiApiKey ? geminiApiKey.slice(0, 6) + '...' : '未設定',
         geminiKeyType: geminiApiKey.startsWith('AQ.') ? 'Google Auth Key (最新標準)' : 'Standard Key',
+        availableModelsCount: availableModels.length,
+        modelsSample: availableModels.slice(0, 8),
+        modelsError,
         hasLineToken: !!channelAccessToken,
         hasLineSecret: !!channelSecret
       }
@@ -238,8 +259,14 @@ ${knowledgeContext}
 ${userMessage}
 `;
 
-          // Google 官方規格：AQ. 新版金鑰必須透過 HTTP Header "x-goog-api-key" 傳遞
-          const candidateModels = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+          // 嘗試多種模型端點（優先使用最新且免費的 flash 陣容）
+          const candidateModels = [
+            'gemini-2.0-flash',
+            'gemini-2.0-flash-exp',
+            'gemini-1.5-flash-latest',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro-latest'
+          ];
 
           for (const model of candidateModels) {
             try {
@@ -267,8 +294,7 @@ ${userMessage}
                 if (aiReplyText) break;
               } else {
                 const errBody = await geminiRes.text();
-                console.error(`Gemini [${model}] error (${geminiRes.status}):`, errBody);
-                debugError = `Gemini API 回傳錯誤 (${geminiRes.status}): ${errBody.slice(0, 100)}`;
+                debugError = `[${model} 錯誤 ${geminiRes.status}]: ${errBody.slice(0, 120)}`;
               }
             } catch (fetchErr) {
               debugError = `連線異常: ${fetchErr.message}`;
@@ -278,7 +304,7 @@ ${userMessage}
 
         // 若無成功回傳之兜底訊息
         if (!aiReplyText) {
-          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【連線提醒】：${debugError || '正在連線 AI 服務中'}\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
+          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統除錯提醒】：${debugError || '正在連線 AI 服務中'}\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
         }
 
         // 3. 透過 LINE Messaging API 免費回覆 (replyMessage)
