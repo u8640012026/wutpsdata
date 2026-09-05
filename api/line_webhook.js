@@ -194,7 +194,7 @@ ${userMessage}
     'gemini-1.5-flash'
   ];
 
-  let debugError = '';
+  const allErrors = {};
   for (const model of candidateModels) {
     try {
       const geminiRes = await fetch(
@@ -221,16 +221,17 @@ ${userMessage}
         if (text) {
           return { reply: text, usedModel: model, error: '' };
         }
+        allErrors[model] = 'empty reply text';
       } else {
         const errBody = await geminiRes.text();
-        debugError = `[${model} 錯誤 ${geminiRes.status}]: ${errBody.slice(0, 120)}`;
+        allErrors[model] = `${geminiRes.status}: ${errBody.slice(0, 150)}`;
       }
     } catch (fetchErr) {
-      debugError = `連線異常: ${fetchErr.message}`;
+      allErrors[model] = `fetch_error: ${fetchErr.message}`;
     }
   }
 
-  return { reply: '', usedModel: '', error: debugError };
+  return { reply: '', usedModel: '', error: JSON.stringify(allErrors, null, 2) };
 }
 
 export default async function handler(req, res) {
