@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { useApp } from '../App';
 import { 
   Calendar, 
@@ -10,15 +10,37 @@ import {
   Maximize2, 
   Minimize2, 
   Download, 
-  ChevronLeft, 
-  ChevronRight, 
-  FileText,
   School,
-  Sparkles,
-  Layers
+  Layers,
+  FileText,
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+// Polyfill for Uint8Array toHex / fromHex for older Safari / Android WebViews / LINE browser
+if (typeof Uint8Array !== 'undefined') {
+  if (!Uint8Array.prototype.toHex) {
+    Uint8Array.prototype.toHex = function() {
+      return Array.from(this).map(b => b.toString(16).padStart(2, '0')).join('');
+    };
+  }
+  if (!Uint8Array.fromHex) {
+    Uint8Array.fromHex = function(hexString) {
+      const clean = hexString.trim();
+      const bytes = new Uint8Array(Math.ceil(clean.length / 2));
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(clean.substr(i * 2, 2), 16) || 0;
+      }
+      return bytes;
+    };
+  }
+}
+
+try {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+} catch (e) {
+  console.warn('Worker setup notice:', e);
+}
 
 export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
   const { isDark } = useApp();
@@ -27,6 +49,7 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [useNativeViewer, setUseNativeViewer] = useState(false);
 
   // Zoom and Pan states
   const [zoom, setZoom] = useState(1);
@@ -40,31 +63,41 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
   const containerRef = useRef(null);
   const pdfDocRef = useRef(null);
 
-  const campusNames = {
-    1: '霧臺校區課表',
-    2: '勵古百合分校課表'
-  };
-
-  // Load PDF document
+  // Load PDF document using fetch ArrayBuffer to avoid webview range-request issues
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
     setError(null);
 
-    pdfjsLib.getDocument(pdfUrl).promise
-      .then(doc => {
+    const loadPDF = async () => {
+      try {
+        const response = await fetch(pdfUrl);
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
         if (!isMounted) return;
+
+        const loadingTask = pdfjsLib.getDocument({
+          data: new Uint8Array(arrayBuffer),
+          disableRange: true,
+          disableStream: true
+        });
+
+        const doc = await loadingTask.promise;
+        if (!isMounted) return;
+
         pdfDocRef.current = doc;
         setTotalPages(doc.numPages || 2);
-        renderPage(currentPage, doc);
-      })
-      .catch(err => {
-        console.error('PDF load error:', err);
+        await renderPage(currentPage, doc);
+      } catch (err) {
+        console.error('PDF fetch / render error:', err);
         if (isMounted) {
-          setError('課表 PDF 載入失敗，請確認檔案連結');
+          setError(err.message || '課表載入異常');
           setLoading(false);
         }
-      });
+      }
+    };
+
+    loadPDF();
 
     return () => {
       isMounted = false;
@@ -186,8 +219,6 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
   };
 
   const cardBg = isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-stone-200';
-  const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
-  const subTextColor = isDark ? 'text-stone-400' : 'text-stone-500';
 
   const containerClasses = isFullscreen
     ? 'fixed inset-0 z-[100] flex flex-col bg-black/95 p-2 sm:p-4'
@@ -204,10 +235,13 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
         {/* 校區切換膠囊按鈕群 */}
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-stone-200/70 dark:bg-slate-800/90 self-start sm:self-auto">
           <button
-            onClick={() => setCurrentPage(1)}
+            onClick={() => {
+              setCurrentPage(1);
+              setUseNativeViewer(false);
+            }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-              currentPage === 1
-                ? 'bg-emerald-700 text-white shadow-sm'
+              currentPage === 1 && !useNativeViewer
+                ? 'bg-teal-700 text-white shadow-sm'
                 : 'text-stone-600 dark:text-stone-300 hover:text-stone-900'
             }`}
           >
@@ -215,10 +249,13 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
             霧臺校區課表
           </button>
           <button
-            onClick={() => setCurrentPage(2)}
+            onClick={() => {
+              setCurrentPage(2);
+              setUseNativeViewer(false);
+            }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-              currentPage === 2
-                ? 'bg-emerald-700 text-white shadow-sm'
+              currentPage === 2 && !useNativeViewer
+                ? 'bg-teal-700 text-white shadow-sm'
                 : 'text-stone-600 dark:text-stone-300 hover:text-stone-900'
             }`}
           >
@@ -229,32 +266,34 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
 
         {/* 縮放、重設與全螢幕操作群 */}
         <div className="flex items-center justify-between sm:justify-end gap-1.5">
-          <div className="flex items-center gap-1 bg-stone-100 dark:bg-slate-800 p-1 rounded-xl border border-stone-200 dark:border-slate-700">
-            <button
-              onClick={handleZoomOut}
-              title="縮小"
-              className="p-1.5 rounded-lg hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-700 dark:text-stone-200 transition"
-            >
-              <ZoomOut size={16} />
-            </button>
-            <span className="text-xs font-mono font-bold px-1.5 min-w-[42px] text-center text-stone-700 dark:text-stone-200">
-              {Math.round(zoom * 100)}%
-            </span>
-            <button
-              onClick={handleZoomIn}
-              title="放大"
-              className="p-1.5 rounded-lg hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-700 dark:text-stone-200 transition"
-            >
-              <ZoomIn size={16} />
-            </button>
-            <button
-              onClick={handleReset}
-              title="重設大小"
-              className="p-1.5 rounded-lg hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-600 dark:text-stone-400 transition ml-0.5"
-            >
-              <RotateCcw size={14} />
-            </button>
-          </div>
+          {!useNativeViewer && (
+            <div className="flex items-center gap-1 bg-stone-100 dark:bg-slate-800 p-1 rounded-xl border border-stone-200 dark:border-slate-700">
+              <button
+                onClick={handleZoomOut}
+                title="縮小"
+                className="p-1.5 rounded-lg hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-700 dark:text-stone-200 transition"
+              >
+                <ZoomOut size={16} />
+              </button>
+              <span className="text-xs font-mono font-bold px-1.5 min-w-[42px] text-center text-stone-700 dark:text-stone-200">
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                onClick={handleZoomIn}
+                title="放大"
+                className="p-1.5 rounded-lg hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-700 dark:text-stone-200 transition"
+              >
+                <ZoomIn size={16} />
+              </button>
+              <button
+                onClick={handleReset}
+                title="重設大小"
+                className="p-1.5 rounded-lg hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-600 dark:text-stone-400 transition ml-0.5"
+              >
+                <RotateCcw size={14} />
+              </button>
+            </div>
+          )}
 
           {/* 全螢幕切換按鈕 */}
           <button
@@ -271,7 +310,7 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
             href={pdfUrl}
             download="霧臺國小全校課表.pdf"
             title="下載原始 PDF 檔案"
-            className="p-2 rounded-xl border transition bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 dark:border-emerald-800 dark:text-emerald-300"
+            className="p-2 rounded-xl border transition bg-teal-50 hover:bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-950/60 dark:hover:bg-teal-900/80 dark:border-teal-800 dark:text-teal-300"
           >
             <Download size={16} />
           </a>
@@ -291,46 +330,67 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
       >
         {loading && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-stone-100/80 dark:bg-slate-900/80 backdrop-blur-sm">
-            <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
-            <p className="mt-3 text-xs font-bold text-emerald-700 dark:text-emerald-400">課表渲染中...</p>
+            <div className="w-8 h-8 border-3 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="mt-3 text-xs font-bold text-teal-700 dark:text-teal-400">課表渲染中...</p>
           </div>
         )}
 
-        {error && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center">
-            <p className="text-sm font-bold text-red-500 mb-2">{error}</p>
-            <a
-              href={pdfUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-emerald-700 underline font-bold"
-            >
-              直接在新分頁開啟原始 PDF
-            </a>
+        {error ? (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center bg-stone-50 dark:bg-slate-900">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto mb-3">
+              <FileText size={24} />
+            </div>
+            <p className="text-sm font-extrabold text-stone-800 dark:text-stone-200 mb-1">
+              課表原生檢視模式
+            </p>
+            <p className="text-xs text-stone-500 dark:text-stone-400 max-w-sm mb-4">
+              因行動端瀏覽器安全性限制，您可點擊下方按鈕直接預覽或開啟官方 PDF：
+            </p>
+            <div className="flex items-center gap-3 flex-wrap justify-center">
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-sm transition"
+              >
+                <ExternalLink size={14} />
+                在新視窗開啟課表 PDF
+              </a>
+              <a
+                href={pdfUrl}
+                download="霧臺國小全校課表.pdf"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border bg-white dark:bg-slate-800 text-stone-700 dark:text-stone-200 border-stone-300 dark:border-slate-700 hover:bg-stone-100 transition"
+              >
+                <Download size={14} />
+                下載 PDF 存檔
+              </a>
+            </div>
+          </div>
+        ) : (
+          /* 畫布容器 */
+          <div
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: 'center center',
+              transition: isDragging ? 'none' : 'transform 0.15s ease-out'
+            }}
+            className="flex items-center justify-center max-w-none"
+          >
+            <canvas
+              ref={canvasRef}
+              className="shadow-2xl rounded-sm max-w-full h-auto bg-white"
+            />
           </div>
         )}
-
-        {/* 畫布容器 */}
-        <div
-          style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            transformOrigin: 'center center',
-            transition: isDragging ? 'none' : 'transform 0.15s ease-out'
-          }}
-          className="flex items-center justify-center max-w-none"
-        >
-          <canvas
-            ref={canvasRef}
-            className="shadow-2xl rounded-sm max-w-full h-auto bg-white"
-          />
-        </div>
 
         {/* 底部浮動引導提示 */}
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-black/60 text-white/90 backdrop-blur-md shadow">
-            💡 手機雙指可縮放滑動，點兩下可快速放大
-          </span>
-        </div>
+        {!error && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+            <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-black/60 text-white/90 backdrop-blur-md shadow">
+              💡 手機雙指可縮放滑動，點兩下可快速放大
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
