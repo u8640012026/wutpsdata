@@ -259,14 +259,18 @@ ${knowledgeContext}
 ${userMessage}
 `;
 
-          // 嘗試多種模型端點（優先使用最新且免費的 flash 陣容）
+          // 嘗試多種模型端點（優先使用最新 Google AI 陣容）
           const candidateModels = [
+            'gemini-2.5-flash',
+            'gemini-flash-latest',
             'gemini-2.0-flash',
+            'gemini-2.5-pro',
             'gemini-2.0-flash-exp',
             'gemini-1.5-flash-latest',
-            'gemini-1.5-flash',
-            'gemini-1.5-pro-latest'
+            'gemini-1.5-flash'
           ];
+
+          let usedModel = '';
 
           for (const model of candidateModels) {
             try {
@@ -291,7 +295,10 @@ ${userMessage}
               if (geminiRes.ok) {
                 const geminiData = await geminiRes.json();
                 aiReplyText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-                if (aiReplyText) break;
+                if (aiReplyText) {
+                  usedModel = model;
+                  break;
+                }
               } else {
                 const errBody = await geminiRes.text();
                 debugError = `[${model} 錯誤 ${geminiRes.status}]: ${errBody.slice(0, 120)}`;
@@ -305,6 +312,16 @@ ${userMessage}
         // 若無成功回傳之兜底訊息
         if (!aiReplyText) {
           aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統除錯提醒】：${debugError || '正在連線 AI 服務中'}\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
+        }
+
+        // 測試用模式（若 replyToken 為 test，直接將回答回傳於 API 回應中方便診斷）
+        if (replyToken === 'test') {
+          return res.status(200).json({
+            status: 'ok',
+            testReply: aiReplyText,
+            usedModel,
+            debugError
+          });
         }
 
         // 3. 透過 LINE Messaging API 免費回覆 (replyMessage)
