@@ -140,50 +140,12 @@ const DEFAULT_KNOWLEDGE_BASE = `
 推動魯凱歲時祭儀（小米收穫祭、搭鞦韆祭典、傳統織布工藝、石板屋修繕等）專案文化課程。
 `;
 
-// 核心 AI 問答函數：檢索知識庫並向 Google Gemini 模型提問
-async function askSchoolAI(userMessage, geminiApiKey) {
+// 核心呼叫 Google Gemini
+async function callGemini(prompt, geminiApiKey) {
   if (!geminiApiKey) {
-    return { reply: '', usedModel: '', error: 'Vercel 尚未偵測到 GEMINI_API_KEY。' };
+    return { success: false, error: 'GEMINI_API_KEY 未設定' };
   }
 
-  // 1. 檢索知識庫（預設官方課表規章 + Supabase 自訂上傳檔案）
-  let knowledgeContext = DEFAULT_KNOWLEDGE_BASE;
-  try {
-    const { data: brainDocs } = await supabase
-      .from('brain_documents')
-      .select('title, extracted_text, summary')
-      .limit(10);
-    
-    if (brainDocs && brainDocs.length > 0) {
-      const extraKnowledge = brainDocs
-        .map(d => `【自訂上傳文件：${d.title}】\n${d.summary || d.extracted_text || ''}`)
-        .join('\n\n');
-      knowledgeContext += '\n\n' + extraKnowledge;
-    }
-  } catch (dbErr) {
-    console.warn('DB query note:', dbErr.message);
-  }
-
-  const prompt = `
-你現在是「屏東縣霧臺國民小學」（含霧臺校區與勵古百合分校）的官方校務 AI 智慧小助手。
-請嚴格依據下方所附的【學校官方校務規章與教師授課總課表資料】，以親切、溫暖、有禮且條理分明的繁體中文回答提問。
-
-【回答守則】：
-1. 詢問課表或課程時：
-   - 務必依據官方課表詳細列出「節次」與「科目名稱」（例如：第 1 節：國語、第 2 節：國語、第 3 節：數學、第 4 節：數學）。
-   - 請主動說明該班導師姓名（例如：五甲導師為皓宇老師；五乙導師為家駿老師）。
-   - 說明早上（第 1 至第 4 節）與下午之區隔。
-2. 資訊必須嚴謹準確，切勿自行編造不存在的課程或規定。
-3. 若問題超出已知規章或課表範圍，請委婉告知並引導其於上班時間致電霧臺國小洽詢對應處室。
-
-【學校官方校務規章與教師授課總課表資料】：
-${knowledgeContext}
-
-【使用者提問】：
-${userMessage}
-`;
-
-  // 嘗試多種模型端點（優先使用最穩定且不塞車的 Flash-Lite 陣容）
   const candidateModels = [
     'gemini-flash-lite-latest',
     'gemini-flash-latest',
@@ -191,7 +153,7 @@ ${userMessage}
     'gemini-3-flash-preview'
   ];
 
-  const allErrors = {};
+  const errors = {};
   for (const model of candidateModels) {
     try {
       const geminiRes = await fetch(
@@ -217,41 +179,177 @@ ${userMessage}
         const parts = geminiData.candidates?.[0]?.content?.parts || [];
         const text = parts.map(p => p.text || '').join('').trim();
         if (text) {
-          return { reply: text, usedModel: model, error: '' };
+          return { success: true, reply: text, model: `Gemini (${model})` };
         }
-        allErrors[model] = 'empty reply text';
+        errors[model] = 'empty reply text';
       } else {
         const errBody = await geminiRes.text();
-        allErrors[model] = `${geminiRes.status}: ${errBody.slice(0, 150)}`;
+        errors[model] = `${geminiRes.status}: ${errBody.slice(0, 150)}`;
       }
     } catch (fetchErr) {
-      allErrors[model] = `fetch_error: ${fetchErr.message}`;
+      errors[model] = `fetch_error: ${fetchErr.message}`;
     }
   }
 
-  return { reply: '', usedModel: '', error: JSON.stringify(allErrors, null, 2) };
+  return { success: false, errors };
+}
+
+// 核心呼叫 Groq Cloud (Llama 3.3 70B / Llama 3.1 8B 秒級備援)
+async function callGroq(systemPrompt, userMessage, groqApiKey) {
+  if (!groqApiKey) {
+    return { success: false, error: 'GROQ_API_KEY 未設定' };
+  }
+
+  const candidateModels = [
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant'
+  ];
+
+  const errors = {};
+  for (const model of candidateModels) {
+    try {
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${groqApiKey}`
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage }
+          ],
+          temperature: 0.2,
+          max_tokens: 2000
+        })
+      });
+
+      if (groqRes.ok) {
+        const groqData = await groqRes.json();
+        const text = groqData.choices?.[0]?.message?.content?.trim() || '';
+        if (text) {
+          return { success: true, reply: text, model: `Groq (${model})` };
+        }
+        errors[model] = 'empty reply text';
+      } else {
+        const errBody = await groqRes.text();
+        errors[model] = `${groqRes.status}: ${errBody.slice(0, 150)}`;
+      }
+    } catch (fetchErr) {
+      errors[model] = `fetch_error: ${fetchErr.message}`;
+    }
+  }
+
+  return { success: false, errors };
+}
+
+// 雙引擎調度管線：Google Gemini 主力 + Groq 秒級無縫備援
+async function askSchoolAI(userMessage, { geminiApiKey, groqApiKey, forceEngine } = {}) {
+  // 1. 檢索知識庫（預設官方課表規章 + Supabase 自訂上傳檔案）
+  let knowledgeContext = DEFAULT_KNOWLEDGE_BASE;
+  try {
+    const { data: brainDocs } = await supabase
+      .from('brain_documents')
+      .select('title, extracted_text, summary')
+      .limit(10);
+    
+    if (brainDocs && brainDocs.length > 0) {
+      const extraKnowledge = brainDocs
+        .map(d => `【自訂上傳文件：${d.title}】\n${d.summary || d.extracted_text || ''}`)
+        .join('\n\n');
+      knowledgeContext += '\n\n' + extraKnowledge;
+    }
+  } catch (dbErr) {
+    console.warn('DB query note:', dbErr.message);
+  }
+
+  const systemInstructions = `你現在是「屏東縣霧臺國民小學」（含霧臺校區與勵古百合分校）的官方校務 AI 智慧小助手。
+請嚴格依據下方所附的【學校官方校務規章與教師授課總課表資料】，以親切、溫暖、有禮且條理分明的繁體中文回答提問。
+
+【回答守則】：
+1. 詢問課表或課程時：
+   - 務必依據官方課表詳細列出「節次」與「科目名稱」（例如：第 1 節：國語、第 2 節：國語、第 3 節：數學、第 4 節：數學）。
+   - 請主動說明該班導師姓名（例如：五甲導師為皓宇老師；五乙導師為家駿老師）。
+   - 說明早上（第 1 至第 4 節）與下午之區隔。
+2. 資訊必須嚴謹準確，切勿自行編造不存在的課程或規定。
+3. 若問題超出已知規章或課表範圍，請委婉告知並引導其於上班時間致電霧臺國小洽詢對應處室。
+
+【學校官方校務規章與教師授課總課表資料】：
+${knowledgeContext}`;
+
+  const geminiPrompt = `
+${systemInstructions}
+
+【使用者提問】：
+${userMessage}
+`;
+
+  // 若指定強制使用 Groq（如測試端點 ?engine=groq）
+  if (forceEngine === 'groq') {
+    const groqRes = await callGroq(systemInstructions, userMessage, groqApiKey);
+    if (groqRes.success) {
+      return { reply: groqRes.reply, usedModel: groqRes.model, provider: 'Groq Cloud (指定)', error: '' };
+    }
+    return { reply: '', usedModel: '', provider: 'Groq Cloud', error: JSON.stringify(groqRes.errors || groqRes.error) };
+  }
+
+  // 第一主力：嘗試 Google Gemini
+  if (geminiApiKey) {
+    const geminiRes = await callGemini(geminiPrompt, geminiApiKey);
+    if (geminiRes.success) {
+      return { reply: geminiRes.reply, usedModel: geminiRes.model, provider: 'Google Gemini (主力)', error: '' };
+    }
+    console.warn('Google Gemini 引擎暫時不可用，秒級啟動 Groq 備援：', geminiRes.errors);
+  }
+
+  // 第二備援：無縫切換至 Groq (Llama 3.3 70B)
+  if (groqApiKey) {
+    const groqRes = await callGroq(systemInstructions, userMessage, groqApiKey);
+    if (groqRes.success) {
+      return { reply: groqRes.reply, usedModel: groqRes.model, provider: 'Groq Cloud (自動備援)', error: '' };
+    }
+    console.error('Groq 備援引擎亦回報錯誤：', groqRes.errors);
+    return {
+      reply: '',
+      usedModel: '',
+      provider: '雙引擎皆不可用',
+      error: `Gemini & Groq 連線異常: ${JSON.stringify(groqRes.errors || groqRes.error)}`
+    };
+  }
+
+  return {
+    reply: '',
+    usedModel: '',
+    provider: '無可用金鑰',
+    error: 'Vercel 尚未偵測到 GEMINI_API_KEY 或 GROQ_API_KEY。'
+  };
 }
 
 export default async function handler(req, res) {
   const channelSecret = (process.env.LINE_CHANNEL_SECRET || '').trim();
   const channelAccessToken = (process.env.LINE_CHANNEL_ACCESS_TOKEN || '').trim();
   const geminiApiKey = (process.env.GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const groqApiKey = (process.env.GROQ_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 
   if (req.method === 'GET') {
-    // 支援直接透過 URL 測試問答：GET /api/line_webhook?q=五年級甲班星期一早上有哪些課
+    // 支援直接透過 URL 測試問答：GET /api/line_webhook?q=問題&engine=groq|gemini
     const testQ = req.query?.q || req.query?.test;
+    const forceEngine = (req.query?.engine || '').toLowerCase();
+
     if (testQ) {
-      const aiResult = await askSchoolAI(testQ, geminiApiKey);
+      const aiResult = await askSchoolAI(testQ, { geminiApiKey, groqApiKey, forceEngine });
       return res.status(200).json({
-        service: '霧臺國小校務 LINE Gemini Webhook 測試問答',
+        service: '霧臺國小校務 LINE Webhook 雙引擎問答測試',
         question: testQ,
-        answer: aiResult.reply,
+        provider: aiResult.provider,
         usedModel: aiResult.usedModel,
+        answer: aiResult.reply,
         debugError: aiResult.error
       });
     }
 
-    let availableModels = [];
+    let availableGeminiModels = [];
     let modelsError = null;
     if (geminiApiKey) {
       try {
@@ -260,7 +358,7 @@ export default async function handler(req, res) {
         });
         if (mRes.ok) {
           const mData = await mRes.json();
-          availableModels = (mData.models || []).map(m => ({
+          availableGeminiModels = (mData.models || []).map(m => ({
             name: m.name.replace('models/', ''),
             methods: m.supportedGenerationMethods || []
           }));
@@ -272,21 +370,17 @@ export default async function handler(req, res) {
       }
     }
 
-    const contentModels = availableModels
-      .filter(m => m.methods.includes('generateContent'))
-      .map(m => m.name);
-
     return res.status(200).json({
-      service: '霧臺國小校務 LINE Gemini Webhook 運行中',
-      version: '2.4.0',
+      service: '霧臺國小校務 LINE Webhook 雙引擎系統運行中',
+      version: '3.0.0 (Dual-Engine: Gemini + Groq)',
+      architecture: '雙引擎高可用架構 (Google Gemini 主力 + Groq Llama 3.3 秒級自動備援)',
       diagnostics: {
         hasGeminiKey: !!geminiApiKey,
         geminiKeyPrefix: geminiApiKey ? geminiApiKey.slice(0, 6) + '...' : '未設定',
         geminiKeyType: geminiApiKey.startsWith('AQ.') ? 'Google Auth Key (最新標準)' : 'Standard Key',
-        totalModelsCount: availableModels.length,
-        contentModelsCount: contentModels.length,
-        contentModels: contentModels.slice(0, 15),
-        modelsSample: availableModels.slice(0, 8),
+        hasGroqKey: !!groqApiKey,
+        groqKeyPrefix: groqApiKey ? groqApiKey.slice(0, 6) + '...' : '未設定',
+        availableGeminiModelsCount: availableGeminiModels.length,
         modelsError,
         hasLineToken: !!channelAccessToken,
         hasLineSecret: !!channelSecret
@@ -340,20 +434,21 @@ export default async function handler(req, res) {
       const replyToken = event.replyToken;
 
       try {
-        const aiResult = await askSchoolAI(userMessage, geminiApiKey);
+        const aiResult = await askSchoolAI(userMessage, { geminiApiKey, groqApiKey });
         let aiReplyText = aiResult.reply;
 
         // 若無成功回傳之兜底訊息
         if (!aiReplyText) {
-          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統除錯提醒】：${aiResult.error || '正在連線 AI 服務中'}\n\n若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
+          aiReplyText = `您好！我是霧小校務小助手。已收到您的提問：「${userMessage}」。\n\n【系統提醒】：正在連線 AI 服務中，若您有急迫之課表、請假或校務需求，歡迎於上班時間致電學校總機洽詢，謝謝！`;
         }
 
         // 測試用模式（若 replyToken 為 test，直接將回答回傳於 API 回應中方便診斷）
         if (replyToken === 'test') {
           return res.status(200).json({
             status: 'ok',
-            testReply: aiReplyText,
+            provider: aiResult.provider,
             usedModel: aiResult.usedModel,
+            testReply: aiReplyText,
             debugError: aiResult.error
           });
         }
