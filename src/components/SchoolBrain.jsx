@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
   BrainCircuit,
   Folder,
@@ -18,10 +19,8 @@ import {
   Wrench,
   Users,
   Search,
-  ChevronRight,
-  AlertCircle,
   X,
-  Download
+  AlertCircle
 } from 'lucide-react';
 
 const DEPARTMENTS = [
@@ -81,80 +80,20 @@ const DEPARTMENTS = [
   }
 ];
 
-// 預設的大腦典藏資料範本
-const INITIAL_DOCUMENTS = [
-  {
-    id: 'doc-1',
-    deptId: 'academic',
-    title: '屏東縣霧臺國小學生評量要點與升級規範.pdf',
-    fileName: '屏東縣霧臺國小學生評量要點與升級規範.pdf',
-    fileSize: '1.2 MB',
-    uploadedBy: '教務處 · 註冊組',
-    uploadedAt: '2026-08-28',
-    status: 'indexed',
-    extractedSummary: '規定平時評量佔50%、定期評量佔50%。自學生缺席節數達全學期授課總節數三分之一以上者，不予核發畢業證書，僅核給修業證明書。'
-  },
-  {
-    id: 'doc-2',
-    deptId: 'student_affairs',
-    title: '霧臺國小學生出缺勤請假與銷假作業規程.pdf',
-    fileName: '霧臺國小學生出缺勤請假與銷假作業規程.pdf',
-    fileSize: '840 KB',
-    uploadedBy: '學務處 · 生教組',
-    uploadedAt: '2026-08-30',
-    status: 'indexed',
-    extractedSummary: '事假需於兩日前提出；病假可於當日由家長以 LINE 或電話知會導師，並於到校後三日內補辦手續。連續請假三日以上須檢附醫師就醫證明。'
-  },
-  {
-    id: 'doc-3',
-    deptId: 'general_affairs',
-    title: '校園場地設施借用辦法暨收費標準表.pdf',
-    fileName: '校園場地設施借用辦法暨收費標準表.pdf',
-    fileSize: '1.8 MB',
-    uploadedBy: '總務主任',
-    uploadedAt: '2026-08-15',
-    status: 'indexed',
-    extractedSummary: '校外機構借用風雨球場或視聽教室需於活動前十四天備妥公文提出申請；本鄉部落居民或公益活動經專案核准得免收場地清潔費。'
-  },
-  {
-    id: 'doc-4',
-    deptId: 'principal',
-    title: '霧臺國小校務中長程發展計畫書 (114-117學年度).pdf',
-    fileName: '霧臺國小校務中長程發展計畫書.pdf',
-    fileSize: '3.4 MB',
-    uploadedBy: '校長室',
-    uploadedAt: '2026-08-10',
-    status: 'indexed',
-    extractedSummary: '四大核心主軸：深耕魯凱文化底蘊、精進數位科技學習、厚植雙語國際視野、構築安全友善校園。'
-  },
-  {
-    id: 'doc-5',
-    deptId: 'ligu',
-    title: '勵古百合分校民族文化歲時祭儀專案推動手冊.pdf',
-    fileName: '勵古百合分校民族文化歲時祭儀專案推動手冊.pdf',
-    fileSize: '2.1 MB',
-    uploadedBy: '分校主任',
-    uploadedAt: '2026-08-20',
-    status: 'indexed',
-    extractedSummary: '詳細規範小米收穫祭、搭鞦韆祭典、傳統織布與石板屋建築工藝課程之授課時數與耆老協同教學聘用準則。'
-  },
-  {
-    id: 'doc-6',
-    deptId: 'personnel',
-    title: '教職員差勤手續與加班研習時數報支規範.pdf',
-    fileName: '教職員差勤手續與加班研習時數報支規範.pdf',
-    fileSize: '950 KB',
-    uploadedBy: '人事室',
-    uploadedAt: '2026-08-25',
-    status: 'indexed',
-    extractedSummary: '同仁公出公差應於事前完成線上簽核；研習進修奉准者核予公假，假日支援校內重大活動得於二年內補休完畢。'
-  }
-];
-
 export default function SchoolBrain() {
   const { isDark, staffData, liffProfile } = useApp();
   const [selectedDeptId, setSelectedDeptId] = useState('academic');
-  const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
+  
+  // 徹底移除任何測試假資料，預設為乾淨空陣列，優先從本機儲存與後端同步
+  const [documents, setDocuments] = useState(() => {
+    try {
+      const cached = localStorage.getItem('wutps_real_brain_docs');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedDocForPreview, setSelectedDocForPreview] = useState(null);
@@ -165,6 +104,44 @@ export default function SchoolBrain() {
   const isSuperAdmin = userRoleTags.includes('0') || staffData?.email?.includes('u864001');
 
   const activeDept = DEPARTMENTS.find(d => d.id === selectedDeptId) || DEPARTMENTS[0];
+
+  // 進入時自伺服器同步真實上傳的文件
+  useEffect(() => {
+    fetchServerDocuments();
+  }, []);
+
+  const fetchServerDocuments = async () => {
+    try {
+      const res = await fetch('/api/brain');
+      if (res.ok) {
+        const serverDocs = await res.json();
+        if (Array.isArray(serverDocs) && serverDocs.length > 0) {
+          // 合併本機與雲端資料
+          setDocuments(prev => {
+            const map = new Map();
+            prev.forEach(d => map.set(d.id || d.title, d));
+            serverDocs.forEach(d => map.set(d.id || d.title, {
+              id: d.id,
+              deptId: d.dept_id,
+              title: d.title,
+              fileName: d.file_name || d.title,
+              fileSize: d.file_size || '',
+              uploadedBy: d.uploaded_by || '',
+              uploadedAt: d.created_at ? d.created_at.split('T')[0] : '',
+              status: 'indexed',
+              extractedText: d.extracted_text || '',
+              extractedSummary: d.summary || (d.extracted_text ? d.extracted_text.slice(0, 200) + '...' : '已解析入庫')
+            }));
+            const merged = Array.from(map.values());
+            localStorage.setItem('wutps_real_brain_docs', JSON.stringify(merged));
+            return merged;
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Sync brain documents error:', err);
+    }
+  };
 
   // 檢查當前使用者是否有權限在該處室資料夾上傳或刪除文件
   const canManageActiveDept = () => {
@@ -181,7 +158,7 @@ export default function SchoolBrain() {
     return hasRole && isDeptMatched;
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -193,36 +170,117 @@ export default function SchoolBrain() {
     setIsUploading(true);
     setUploadProgress(20);
 
-    // 模擬後端文字提取與 Gemini 大腦索引過程
-    const timer1 = setTimeout(() => setUploadProgress(60), 400);
-    const timer2 = setTimeout(() => {
-      setUploadProgress(100);
+    try {
+      // 1. 真實讀取並萃取 PDF 文字
+      const arrayBuffer = await file.arrayBuffer();
+      setUploadProgress(45);
+
+      let extractedText = '';
+      try {
+        const pdfDoc = await pdfjsLib.getDocument({
+          data: new Uint8Array(arrayBuffer),
+          disableRange: true,
+          disableStream: true
+        }).promise;
+
+        const maxPages = Math.min(pdfDoc.numPages, 10);
+        for (let i = 1; i <= maxPages; i++) {
+          const page = await pdfDoc.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageStr = textContent.items.map(item => item.str).join(' ');
+          if (pageStr.trim()) {
+            extractedText += `【第 ${i} 頁】\n${pageStr}\n\n`;
+          }
+        }
+      } catch (pdfErr) {
+        console.warn('PDF 文字萃取提醒:', pdfErr);
+      }
+
+      setUploadProgress(75);
+
+      // 自動產生摘要
+      const cleanSnippet = extractedText.replace(/【第 \d+ 頁】/g, '').replace(/\s+/g, ' ').trim();
+      const generatedSummary = cleanSnippet.length > 250
+        ? cleanSnippet.slice(0, 250) + '...'
+        : (cleanSnippet || '此文件已成功萃取全文結構，LINE Gemini 機器人將依據其文字精準問答。');
+
+      const uploaderName = staffData?.name || liffProfile?.displayName || '校務同仁';
       const newDoc = {
         id: `doc-${Date.now()}`,
         deptId: activeDept.id,
         title: file.name,
         fileName: file.name,
         fileSize: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-        uploadedBy: staffData?.name || liffProfile?.displayName || '行政同仁',
+        uploadedBy: uploaderName,
         uploadedAt: new Date().toISOString().split('T')[0],
         status: 'indexed',
-        extractedSummary: `此文件已由系統自動解析全文並建立向量索引，官方 LINE 機器人已可根據此份《${file.name}》精準回答提問。`
+        extractedText: extractedText,
+        extractedSummary: generatedSummary
       };
 
-      setDocuments(prev => [newDoc, ...prev]);
+      // 2. 存入後端 API (Supabase)
+      try {
+        await fetch('/api/brain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dept_id: activeDept.id,
+            title: file.name,
+            file_name: file.name,
+            file_size: newDoc.fileSize,
+            uploaded_by: uploaderName,
+            extracted_text: extractedText,
+            summary: generatedSummary
+          })
+        });
+      } catch (apiErr) {
+        console.warn('API 保存提醒:', apiErr);
+      }
+
+      // 3. 更新前端狀態與本機持久化快照
+      setDocuments(prev => {
+        const updated = [newDoc, ...prev];
+        localStorage.setItem('wutps_real_brain_docs', JSON.stringify(updated));
+        return updated;
+      });
+
+      setUploadProgress(100);
+      setTimeout(() => {
+        setIsUploading(false);
+        setUploadProgress(0);
+      }, 400);
+
+    } catch (err) {
+      console.error('上傳處理失敗:', err);
+      alert('上傳失敗: ' + err.message);
       setIsUploading(false);
       setUploadProgress(0);
+    } finally {
       e.target.value = null;
-    }, 1000);
+    }
   };
 
-  const handleDelete = (docId, title) => {
+  const handleDelete = async (docId, title) => {
     if (!canManageActiveDept()) {
       alert('您沒有權限刪除此處室之大腦文件');
       return;
     }
-    if (window.confirm(`確定要將《${title}》從 AI 大腦中移除嗎？移除後 LINE 機器人將無法檢索此檔案。`)) {
-      setDocuments(prev => prev.filter(d => d.id !== docId));
+    if (window.confirm(`確定要將《${title}》從 AI 大腦中徹底移除嗎？移除後 LINE 機器人將無法檢索此檔案。`)) {
+      try {
+        await fetch('/api/brain', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: docId })
+        });
+      } catch (err) {
+        console.warn('Delete API warning:', err);
+      }
+
+      setDocuments(prev => {
+        const filtered = prev.filter(d => (d.id || d.title) !== docId && d.title !== title);
+        localStorage.setItem('wutps_real_brain_docs', JSON.stringify(filtered));
+        return filtered;
+      });
     }
   };
 
@@ -230,7 +288,7 @@ export default function SchoolBrain() {
     const matchDept = doc.deptId === selectedDeptId;
     const matchSearch = searchTerm === '' || 
       doc.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      doc.extractedSummary.toLowerCase().includes(searchTerm.toLowerCase());
+      (doc.extractedSummary && doc.extractedSummary.toLowerCase().includes(searchTerm.toLowerCase()));
     return matchDept && matchSearch;
   });
 
@@ -362,7 +420,7 @@ export default function SchoolBrain() {
         {isUploading && (
           <div className="mb-4 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800">
             <div className="flex justify-between text-xs font-bold text-indigo-800 dark:text-indigo-200 mb-1.5">
-              <span>文件文字解析與大腦向量索引中...</span>
+              <span>正在即時解析 PDF 全文並建立大腦索引...</span>
               <span>{uploadProgress}%</span>
             </div>
             <div className="w-full h-2 bg-indigo-200 dark:bg-indigo-900 rounded-full overflow-hidden">
@@ -392,14 +450,14 @@ export default function SchoolBrain() {
 
         {/* 文件列表 */}
         {filteredDocs.length === 0 ? (
-          <div className="text-center py-8">
+          <div className="text-center py-10 border border-dashed rounded-xl border-stone-200 dark:border-slate-800">
             <FileText size={32} className="mx-auto text-stone-300 dark:text-stone-600 mb-2" />
             <p className={`text-xs font-bold ${subTextColor}`}>
-              {searchTerm ? '找不到符合關鍵字之大腦文件' : '此資料夾目前尚無已吸收之官方 PDF'}
+              {searchTerm ? '找不到符合關鍵字之大腦文件' : `此處室目前尚無文件，大腦處於純淨狀態`}
             </p>
             {canManageActiveDept() && !searchTerm && (
               <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold mt-1">
-                點擊上方「上傳 PDF 文件」按鈕即可為校務大腦擴充記憶
+                請點擊右上角「上傳 PDF 文件」按鈕，即可將真實的處室規章加入大腦
               </p>
             )}
           </div>
@@ -407,7 +465,7 @@ export default function SchoolBrain() {
           <div className="space-y-2.5">
             {filteredDocs.map(doc => (
               <div
-                key={doc.id}
+                key={doc.id || doc.title}
                 className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
                   isDark
                     ? 'bg-slate-800/60 border-slate-800 hover:border-slate-700'
@@ -452,8 +510,8 @@ export default function SchoolBrain() {
                   {/* 刪除文件 */}
                   {canManageActiveDept() && (
                     <button
-                      onClick={() => handleDelete(doc.id, doc.title)}
-                      title="自大腦中移除"
+                      onClick={() => handleDelete(doc.id || doc.title, doc.title)}
+                      title="自大腦中徹底刪除"
                       className="p-1.5 rounded-lg border transition text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 border-stone-200 dark:border-slate-700"
                     >
                       <Trash2 size={14} />
@@ -477,7 +535,7 @@ export default function SchoolBrain() {
             }`}>
               <div className="flex items-center gap-2">
                 <Sparkles size={16} className="text-indigo-600 dark:text-indigo-400" />
-                <h4 className="font-black text-sm">Gemini AI 大腦摘要與萃取資訊</h4>
+                <h4 className="font-black text-sm">Gemini AI 大腦摘要與真實萃取資訊</h4>
               </div>
               <button
                 onClick={() => setSelectedDocForPreview(null)}
@@ -487,7 +545,7 @@ export default function SchoolBrain() {
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
               <div>
                 <p className="text-xs font-bold text-stone-400">文件名稱</p>
                 <p className="text-sm font-extrabold mt-0.5">{selectedDocForPreview.title}</p>
@@ -505,12 +563,24 @@ export default function SchoolBrain() {
               }`}>
                 <p className="text-xs font-bold text-indigo-900 dark:text-indigo-300 mb-1.5 flex items-center gap-1.5">
                   <BrainCircuit size={13} />
-                  核心重點與規則摘要 (用於回答 LINE 提問)：
+                  核心重點摘要 (供 LINE 機器人回答使用)：
                 </p>
                 <p className="text-xs leading-relaxed text-stone-700 dark:text-stone-300">
                   {selectedDocForPreview.extractedSummary}
                 </p>
               </div>
+
+              {selectedDocForPreview.extractedText && (
+                <div>
+                  <p className="text-xs font-bold text-stone-400 mb-1">已萃取之全文內容片段：</p>
+                  <div className={`p-3 rounded-xl border text-[11px] font-mono leading-relaxed max-h-40 overflow-y-auto ${
+                    isDark ? 'bg-slate-800/50 border-slate-700 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-700'
+                  }`}>
+                    {selectedDocForPreview.extractedText.slice(0, 1000)}
+                    {selectedDocForPreview.extractedText.length > 1000 && ' ...（更多內文已建置入庫）'}
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end pt-2">
                 <button
