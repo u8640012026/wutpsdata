@@ -17,6 +17,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { useApp } from '../App';
+import { roleTags as getRoleTags } from '../lib/staffAccess';
 
 // SWR 前端記憶體快取（保證切換頁面 0 毫秒極速秒開）
 const calendarMemoryCache = {
@@ -60,7 +61,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
   const { staffData } = useApp();
   
   // 權限判斷：Role 0(超管), 1(校長), 2(主任), 3(組長) 具備新增權限
-  const roleTags = staffData?.role_tags || '';
+  const roleTags = getRoleTags(staffData);
   const isSuperAdmin = roleTags.includes('0') || staffData?.email?.includes('u864001');
   const canManage = isSuperAdmin || roleTags.includes('1') || roleTags.includes('2') || roleTags.includes('3');
   const currentUid = staffData?.line_uid || '';
@@ -376,10 +377,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
   // 輔助函式：判斷是否擁有編輯/刪除權限
   const canModifyEvent = (ev) => {
     if (!ev) return false;
-    if (isSuperAdmin) return true; // Role 0 超級管理員擁有所有事件的修改/刪除權限
-    if (currentUid && ev.description && ev.description.includes(currentUid)) return true;
-    if (currentUserName && ev.description && ev.description.includes(`【建立者】：${currentUserName}`)) return true;
-    return false;
+    return canManage;
   };
 
   // 輔助函式：校區色彩標籤樣式

@@ -1,16 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../App';
-import liff from '@line/liff';
-import { School, GraduationCap, ArrowLeft, Maximize2, Minimize2, Check, Users } from 'lucide-react';
+import { School, GraduationCap, ArrowLeft, Maximize2, Minimize2 } from 'lucide-react';
+import { isSchoolAdmin, homeroomClass, studentClass } from '../lib/staffAccess';
 
 export default function StudentList() {
-  const { isDark, staffData } = useApp();
+  const { isDark, staffData, liffProfile } = useApp();
   const [students, setStudents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  const roleTags = staffData?.role_tags || '';
-  const isAdmin = ['0', '1', '2', '3', '20', '30', '40', '50'].some(r => roleTags.includes(r));
-  const isHomeroom = roleTags.includes('4') && !isAdmin;
+  const isAdmin = isSchoolAdmin(staffData);
+  const assignedClass = homeroomClass(staffData);
+  const isHomeroom = Boolean(assignedClass) && !isAdmin;
+  const lineUid = liffProfile?.userId;
+  const [error, setError] = useState('');
 
   const [selectedClasses, setSelectedClasses] = useState([]);
   const [isViewing, setIsViewing] = useState(false);
@@ -19,21 +21,14 @@ export default function StudentList() {
   const [activeTab, setActiveTab] = useState('basic');
   const [showHomeschooled, setShowHomeschooled] = useState(false);
 
-  useEffect(() => {
-    fetchStudents();
-  }, []);
-
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     setIsLoading(true);
+    setError('');
     try {
-      let uid = 'dev-admin';
-      if (window.liff?.isLoggedIn()) {
-        const profile = await window.liff.getProfile();
-        uid = profile.userId;
-      }
+      if (!lineUid) throw new Error('請先使用 LINE 登入。');
 
       const response = await fetch('/api/students', {
-        headers: { 'x-line-uid': uid }
+        headers: { 'x-line-uid': lineUid }
       });
       const data = await response.json();
       
@@ -42,23 +37,22 @@ export default function StudentList() {
         
         // 若為導師，自動展開他的班級 (來自 excel 上傳的 "任教班級")
         if (isHomeroom) {
-          const myClass = staffData?.details?.['任教班級'];
-          if (myClass) {
-            setSelectedClasses([myClass]);
-            setIsViewing(true);
-          } else if (data.length > 0) {
-            setSelectedClasses([`${data[0].grade}${data[0].class_name}`]);
-            setIsViewing(true);
-          }
+          setSelectedClasses([assignedClass]);
+          setIsViewing(true);
         }
       } else {
-        console.error(data.error);
+        throw new Error(data.error || '學生資料讀取失敗');
       }
     } catch (err) {
-      console.error(err);
+      setError(err.message);
+      setStudents([]);
     }
     setIsLoading(false);
-  };
+  }, [lineUid, isHomeroom, assignedClass]);
+
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
 
   const toggleClass = (cls) => {
     if (selectedClasses.includes(cls)) {
@@ -86,7 +80,7 @@ export default function StudentList() {
   };
 
   const filteredStudents = students.filter(s => {
-    if (!selectedClasses.includes(`${s.grade}${s.class_name}`)) return false;
+    if (!selectedClasses.includes(studentClass(s))) return false;
     
     // 終極自學生攔截邏輯：直接掃描該學生所有的資料欄位值 (避免 Excel 欄位名稱異動導致漏接)
     const allValues = [s.enroll_type, ...Object.values(s.details || {})].map(v => String(v || ''));
@@ -118,6 +112,9 @@ export default function StudentList() {
   if (isLoading) {
     return <p className="text-emerald-700 dark:text-emerald-300 text-center py-8 font-bold animate-pulse text-sm">載入學生資料中...</p>;
   }
+
+  if (error) return <p role="alert" className="text-red-600 dark:text-red-400 p-4">{error}</p>;
+  if (!isAdmin && !isHomeroom) return <p className="p-4">此帳號未設定可查閱的班級。</p>;
 
   // 顯示班級選擇 (若為行政且尚未進入檢視模式)
   if (!isViewing) {

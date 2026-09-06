@@ -2,20 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { useApp } from '../App';
-import { 
-  Calendar, 
-  ZoomIn, 
-  ZoomOut, 
-  RotateCcw, 
-  Maximize2, 
-  Minimize2, 
-  Download, 
-  School,
-  Layers,
-  FileText,
-  AlertCircle,
-  ExternalLink
-} from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2, Download, School, Layers, FileText, ExternalLink } from 'lucide-react';
 
 // Polyfill for Uint8Array toHex / fromHex for older Safari / Android WebViews / LINE browser
 if (typeof Uint8Array !== 'undefined') {

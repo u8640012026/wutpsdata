@@ -1,27 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
+import { roleTags } from '../lib/staffAccess';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import {
-  BrainCircuit,
-  Folder,
-  FolderOpen,
-  Upload,
-  FileText,
-  Trash2,
-  Eye,
-  CheckCircle2,
-  Clock,
-  Sparkles,
-  ShieldAlert,
-  School,
-  BookOpen,
-  Compass,
-  Wrench,
-  Users,
-  Search,
-  X,
-  AlertCircle
-} from 'lucide-react';
+import { BrainCircuit, FolderOpen, Upload, FileText, Trash2, Eye, CheckCircle2, Clock, Sparkles, ShieldAlert, School, BookOpen, Compass, Wrench, Users, Search, X } from 'lucide-react';
 
 const DEPARTMENTS = [
   {
@@ -99,7 +80,7 @@ export default function SchoolBrain() {
   const [selectedDocForPreview, setSelectedDocForPreview] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const userRoleTags = staffData?.role_tags || '';
+  const userRoleTags = roleTags(staffData);
   const userDept = staffData?.department || '';
   const isSuperAdmin = userRoleTags.includes('0') || staffData?.email?.includes('u864001');
 

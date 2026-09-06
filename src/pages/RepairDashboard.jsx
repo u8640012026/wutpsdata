@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import imageCompression from 'browser-image-compression';
 import { supabase } from '../supabaseClient';
-import liff from '@line/liff';
 import { useApp } from '../App';
+import { canManageRepairs, isSuperAdmin } from '../lib/staffAccess';
 import { 
   Wrench, 
   ShoppingCart, 
@@ -17,12 +17,11 @@ import {
   FileText, 
   Camera, 
   X, 
-  Settings, 
-  UploadCloud 
+  Settings
 } from 'lucide-react';
 
 export default function RepairDashboard() {
-  const { isDark, setHideBottomNav } = useApp();
+  const { isDark, setHideBottomNav, liffProfile, staffData } = useApp();
   const [view, setView] = useState('list'); // 'list', 'form', 'detail'
 
   // 填報表單或檢視詳情時自動隱藏底部導覽列
@@ -31,6 +30,7 @@ export default function RepairDashboard() {
     return () => setHideBottomNav?.(false);
   }, [view, setHideBottomNav]);
   const [filter, setFilter] = useState('all'); // 'all', 'repair', 'purchase'
+  const [showHistory, setShowHistory] = useState(false);
   const [repairs, setRepairs] = useState([]);
   const [selectedRepair, setSelectedRepair] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,56 +47,49 @@ export default function RepairDashboard() {
   // Detail view update states
   const [newProgress, setNewProgress] = useState('');
   const [assignee, setAssignee] = useState('');
-  const [vendorInfo, setVendorInfo] = useState({ name: '', contact: '', phone: '' });
   const [completionCost, setCompletionCost] = useState('');
+  const [error, setError] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
   
   // User info
-  const [lineUid, setLineUid] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false); // 總務處或行政可以編輯進度
+  const lineUid = liffProfile?.userId;
+  const isAdmin = canManageRepairs(staffData);
+  const isSuper = isSuperAdmin(staffData);
+
+  const fetchRepairs = useCallback(async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      if (!lineUid) throw new Error('請先使用 LINE 登入再查看案件。');
+      const response = await fetch('/api/repairs', {
+        headers: { 'x-line-uid': lineUid }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '案件讀取失敗，請稍後重試。');
+      setRepairs(data);
+    } catch (err) {
+      setError(err.message);
+      setRepairs([]);
+    }
+    setIsLoading(false);
+  }, [lineUid]);
 
   useEffect(() => {
     fetchRepairs();
-  }, []);
-
-  const fetchRepairs = async () => {
-    setIsLoading(true);
-    try {
-      let uid = 'dev-admin';
-      if (window.liff?.isLoggedIn()) {
-        const profile = await window.liff.getProfile();
-        uid = profile.userId;
-      }
-      setLineUid(uid);
-
-      // Check role just for UI rendering purposes
-      const { data: staff } = await supabase.from('staff').select('*').eq('line_uid', uid).single();
-      setIsAdmin(staff && (staff.title === '行政' || staff.email.includes('u864001')));
-
-      const response = await fetch('/api/repairs', {
-        headers: { 'x-line-uid': uid }
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setRepairs(data);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    setIsLoading(false);
-  };
+  }, [fetchRepairs]);
 
   const handleImageUpload = async (file) => {
     try {
       const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1280, useWebWorker: true };
       const compressedFile = await imageCompression(file, options);
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-      const { data, error } = await supabase.storage.from('repair_media').upload(fileName, compressedFile);
+      const { error } = await supabase.storage.from('repair_media').upload(fileName, compressedFile);
       if (error) throw error;
       const { data: publicUrlData } = supabase.storage.from('repair_media').getPublicUrl(fileName);
       return publicUrlData.publicUrl;
     } catch (error) {
       console.error('上傳失敗', error);
-      return null;
+      throw new Error('照片上傳失敗，請重試後再送出表單。');
     }
   };
 
@@ -105,6 +98,7 @@ export default function RepairDashboard() {
     setIsSubmitting(true);
     
     try {
+      if (!lineUid) throw new Error('請先使用 LINE 登入。');
       let uploadedUrls = [];
       for (const file of files) {
         const url = await handleImageUpload(file);
@@ -122,12 +116,14 @@ export default function RepairDashboard() {
         })
       });
 
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || '表單送出失敗');
       if (response.ok) {
         alert('✅ 送出成功！');
         setView('list');
         fetchRepairs();
         // Reset form
-        setTarget(''); setLocation(''); setDesc(''); setFiles([]);
+        setTarget(''); setLocation(''); setDesc(''); setFiles([]); setUrgency('yellow');
       }
     } catch (err) {
       alert('送出失敗: ' + err.message);
@@ -136,29 +132,62 @@ export default function RepairDashboard() {
   };
 
   const handleAddProgress = async () => {
-    if (!newProgress) return;
-    const updatedLogs = [...(selectedRepair.progress_logs || []), { time: new Date().toISOString(), text: newProgress }];
-    await updateRepair(selectedRepair.id, { progress_logs: updatedLogs });
-    setSelectedRepair({ ...selectedRepair, progress_logs: updatedLogs });
-    setNewProgress('');
+    if (!newProgress.trim() || isUpdating) return;
+    setIsUpdating(true);
+    try {
+      const updatedLogs = [...(selectedRepair.progress_logs || []), { time: new Date().toISOString(), text: newProgress.trim() }];
+      const saved = await updateRepair(selectedRepair.id, { progress_logs: updatedLogs });
+      setSelectedRepair(saved);
+      setNewProgress('');
+    } catch (err) {
+      alert('更新失敗：' + err.message);
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   const handleCloseCase = async () => {
-    if (!window.confirm('確定要結案嗎？結案後將無法再修改。')) return;
+    if (isUpdating) return;
+    if (!window.confirm('確認修繕或採購已完成並結案？案件將移至歷史區。')) return;
     const updates = { 
       status: 'closed', 
       urgency: 'blue',
-      assignee: assignee || selectedRepair.assignee,
-      vendor_info: vendorInfo,
-      completion_details: { time: new Date().toISOString(), cost: completionCost }
     };
-    await updateRepair(selectedRepair.id, updates);
-    setSelectedRepair({ ...selectedRepair, ...updates });
-    alert('✅ 案件已結案！');
+    setIsUpdating(true);
+    try {
+      const saved = await updateRepair(selectedRepair.id, updates);
+      setSelectedRepair(saved);
+      setShowHistory(true);
+      setView('list');
+      alert('✅ 案件已結案！');
+    } catch (err) {
+      alert('結案失敗：' + err.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSaveProcessing = async (completed = false) => {
+    if (isUpdating) return;
+    setIsUpdating(true);
+    try {
+      const updates = {
+        assignee,
+        completion_details: { ...(selectedRepair.completion_details || {}), cost: completionCost },
+        ...(completed ? { status: 'completed' } : {})
+      };
+      const saved = await updateRepair(selectedRepair.id, updates);
+      setSelectedRepair(saved);
+      alert(completed ? '已標記處理完成，請由原提報人確認結案。' : '處理資訊已儲存。');
+    } catch (err) {
+      alert('更新失敗：' + err.message);
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   const updateRepair = async (id, updates) => {
-    await fetch('/api/repairs', {
+    const response = await fetch('/api/repairs', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -166,7 +195,11 @@ export default function RepairDashboard() {
       },
       body: JSON.stringify({ id, updates })
     });
-    fetchRepairs();
+    const saved = await response.json();
+    if (!response.ok) throw new Error(saved.error || '案件更新失敗');
+    if (!saved?.id) throw new Error('伺服器未回傳已儲存的案件，請重新確認狀態。');
+    setRepairs(previous => previous.map(repair => repair.id === saved.id ? saved : repair));
+    return saved;
   };
 
   // Sort: Red -> Yellow -> Blue (Closed)
@@ -176,7 +209,7 @@ export default function RepairDashboard() {
       return urgencyWeight[a.urgency] - urgencyWeight[b.urgency];
     }
     return new Date(b.created_at) - new Date(a.created_at);
-  }).filter(r => filter === 'all' ? true : r.type === filter);
+  }).filter(r => (filter === 'all' || r.type === filter) && (showHistory ? r.status === 'closed' : r.status !== 'closed'));
 
   const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
   const subTextColor = isDark ? 'text-stone-400' : 'text-stone-500';
@@ -184,6 +217,7 @@ export default function RepairDashboard() {
 
   return (
     <div className="w-full max-w-2xl mx-auto p-4 space-y-6 pb-20">
+      {error && <p role="alert" className="text-red-600 dark:text-red-400">{error}</p>}
       {/* Header Tabs */}
       {view === 'list' && (
         <>
@@ -204,6 +238,10 @@ export default function RepairDashboard() {
           </div>
           
           {/* 篩選標籤 */}
+          <div className="flex gap-2">
+            <button onClick={() => setShowHistory(false)} className={`px-4 py-2 rounded-xl ${!showHistory ? 'bg-emerald-700 text-white' : 'bg-stone-200 text-stone-800'}`}>進行中</button>
+            <button onClick={() => setShowHistory(true)} className={`px-4 py-2 rounded-xl ${showHistory ? 'bg-emerald-700 text-white' : 'bg-stone-200 text-stone-800'}`}>歷史案件</button>
+          </div>
           <div className={`flex rounded-xl p-1 border gap-1 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-stone-100 border-stone-200'}`}>
             <button 
               onClick={() => setFilter('all')} 
@@ -252,7 +290,7 @@ export default function RepairDashboard() {
             {sortedRepairs.map(r => (
               <div 
                 key={r.id} 
-                onClick={() => { setSelectedRepair(r); setView('detail'); }}
+                onClick={() => { setSelectedRepair(r); setAssignee(r.assignee || ''); setCompletionCost(r.completion_details?.cost ?? ''); setNewProgress(''); setView('detail'); }}
                 className={`p-4 rounded-2xl shadow-sm cursor-pointer border-l-4 transition-all hover:scale-[1.01] active:scale-[0.99] border ${
                   cardBg
                 } ${
@@ -475,7 +513,7 @@ export default function RepairDashboard() {
               <p className={subTextColor}><MapPin size={13} className="inline mr-1 text-emerald-600 dark:text-emerald-400" /><b className={textColor}>位置:</b> {selectedRepair.location}</p>
               <p className={subTextColor}><User size={13} className="inline mr-1 text-emerald-600 dark:text-emerald-400" /><b className={textColor}>提報人:</b> {selectedRepair.reporter_name}</p>
               <p className={subTextColor}><Calendar size={13} className="inline mr-1 text-emerald-600 dark:text-emerald-400" /><b className={textColor}>日期:</b> {new Date(selectedRepair.created_at).toLocaleDateString()}</p>
-              <p className={subTextColor}><CheckCircle2 size={13} className="inline mr-1 text-emerald-600 dark:text-emerald-400" /><b className={textColor}>狀態:</b> {selectedRepair.status === 'closed' ? '已結案' : '處理中'}</p>
+              <p className={subTextColor}><CheckCircle2 size={13} className="inline mr-1 text-emerald-600 dark:text-emerald-400" /><b className={textColor}>狀態:</b> {selectedRepair.status === 'closed' ? '已結案' : selectedRepair.status === 'completed' ? '待提報人確認' : '處理中'}</p>
             </div>
 
             <div className={`p-4 rounded-xl text-sm leading-relaxed ${isDark ? 'bg-slate-800/80 text-stone-200' : 'bg-stone-100 text-stone-800'}`}>
@@ -513,7 +551,7 @@ export default function RepairDashboard() {
             </div>
             
             {/* 新增進度輸入框 */}
-            {selectedRepair.status !== 'closed' && (isAdmin || selectedRepair.reporter_uid === lineUid) && (
+            {selectedRepair.status !== 'closed' && isAdmin && (
               <div className="flex gap-2">
                 <input 
                   value={newProgress} 
@@ -525,6 +563,7 @@ export default function RepairDashboard() {
                 />
                 <button 
                   onClick={handleAddProgress} 
+                  disabled={isUpdating || !newProgress.trim()}
                   className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition active:scale-95 flex-shrink-0"
                 >
                   送出
@@ -569,13 +608,21 @@ export default function RepairDashboard() {
                   />
                 </div>
                 <button 
-                  onClick={handleCloseCase} 
+                  onClick={() => handleSaveProcessing(false)}
+                  disabled={isUpdating}
                   className="w-full mt-4 bg-emerald-700 hover:bg-emerald-800 text-white font-black py-3 rounded-xl shadow-md transition active:scale-[0.99] flex items-center justify-center gap-2"
                 >
                   <CheckCircle2 size={16} />
-                  結案並轉為藍燈
+                  儲存處理資訊
                 </button>
+                {selectedRepair.status !== 'completed' && <button onClick={() => handleSaveProcessing(true)} disabled={isUpdating} className="w-full bg-emerald-700 text-white font-bold py-3 rounded-xl">標記處理完成</button>}
               </div>
+            </div>
+          )}
+          {selectedRepair.status === 'completed' && (selectedRepair.reporter_uid === lineUid || isSuper) && (
+            <div className="p-6 bg-sky-50 dark:bg-slate-800">
+              <p className={`mb-3 text-sm ${textColor}`}>請確認修繕或採購結果；仍有問題請聯繫承辦人。</p>
+              <button onClick={handleCloseCase} disabled={isUpdating} className="w-full bg-sky-700 text-white font-bold py-3 rounded-xl">確認完成並結案</button>
             </div>
           )}
         </div>

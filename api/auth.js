@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isSchoolAdmin } from '../src/lib/staffAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -26,7 +27,7 @@ export default async function handler(req, res) {
       return res.status(401).json({ role: null, error: 'User not found' });
     }
 
-    const role = (staffData.title === '行政' || staffData.email?.includes('u864001')) ? 'admin' : 'teacher';
+    const role = isSchoolAdmin(staffData) ? 'admin' : 'teacher';
     
     return res.status(200).json({ role, staffData });
   } catch (err) {

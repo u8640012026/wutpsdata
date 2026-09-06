@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { canManageRepairs, isSuperAdmin } from '../src/lib/staffAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -20,7 +21,9 @@ export default async function handler(req, res) {
   try {
     // 檢查使用者權限
     const { data: staff } = await supabase.from('staff').select('*').eq('line_uid', line_uid).single();
-    const isAdmin = staff && (staff.title === '行政' || staff.email.includes('u864001'));
+    if (!staff) return res.status(403).json({ error: '請先完成教職員身分綁定。' });
+    const isAdmin = canManageRepairs(staff);
+    const isSuper = isSuperAdmin(staff);
 
     if (method === 'GET') {
       // 總務處或主任/校長(行政)看全部，一般教職員看自己的
@@ -35,7 +38,13 @@ export default async function handler(req, res) {
 
     if (method === 'POST') {
       // 新增報修/採購單
-      const insertData = { ...body, reporter_uid: line_uid, reporter_name: staff ? staff.name : '未知' };
+      const { type, target, location, description, urgency, media_urls } = body || {};
+      if (!['repair', 'purchase'].includes(type) || !['yellow', 'red'].includes(urgency) ||
+          ![target, location, description].every(value => typeof value === 'string' && value.trim())) {
+        return res.status(400).json({ error: '請填寫案件類型、標的物、位置、狀況與緊急程度。' });
+      }
+      const insertData = { type, target: target.trim(), location: location.trim(), description: description.trim(), urgency,
+        media_urls: Array.isArray(media_urls) ? media_urls : [], reporter_uid: line_uid, reporter_name: staff.name };
       const { data, error } = await supabase.from('repairs').insert([insertData]).select();
       if (error) throw error;
       
@@ -46,6 +55,22 @@ export default async function handler(req, res) {
     if (method === 'PATCH') {
       // 更新案件進度或結案
       const { id, updates } = body;
+      const { data: existing, error: readError } = await supabase.from('repairs').select('*').eq('id', id).single();
+      if (readError || !existing) return res.status(404).json({ error: '找不到案件。' });
+      if (!isAdmin && existing.reporter_uid !== line_uid) return res.status(403).json({ error: '無權修改此案件。' });
+      if (existing.status === 'closed' && !isSuper) return res.status(409).json({ error: '此案件已結案，無法再修改。' });
+      const allowedFields = isAdmin ? ['progress_logs', 'status', 'urgency', 'assignee', 'completion_details'] : ['status', 'urgency'];
+      if (!updates || typeof updates !== 'object' || Array.isArray(updates) || Object.keys(updates).some(key => !allowedFields.includes(key))) {
+        return res.status(403).json({ error: '包含無權修改的案件欄位。' });
+      }
+      if (updates.status === 'closed') {
+        if (!isSuper && existing.reporter_uid !== line_uid) return res.status(403).json({ error: '須由原提報人確認結案。' });
+        if (!isSuper && existing.status !== 'completed') return res.status(409).json({ error: '請待承辦人標記處理完成後，再確認結案。' });
+        updates.urgency = 'blue';
+      } else if (!isAdmin) {
+        return res.status(403).json({ error: '僅承辦權限人員可更新處理進度。' });
+      }
+      if (updates.status && !['open', 'completed', 'closed'].includes(updates.status)) return res.status(400).json({ error: '無效的案件狀態。' });
       const { data, error } = await supabase.from('repairs').update(updates).eq('id', id).select();
       if (error) throw error;
 

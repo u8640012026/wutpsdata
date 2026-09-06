@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isSchoolAdmin, homeroomClass, studentClass } from '../src/lib/staffAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -19,15 +20,17 @@ export default async function handler(req, res) {
       const { data: staffData } = await supabase.from('staff').select('*').eq('line_uid', line_uid).single();
       if (!staffData) return res.status(403).json({ error: 'Forbidden' });
 
-      // TODO: 未來可根據 staffData.role_tags 來過濾能看到的學生 (例如導師只看自己班)
-      // 目前 Admin 看全校
+      const canViewAll = isSchoolAdmin(staffData);
+      const assignedClass = homeroomClass(staffData);
+      if (!canViewAll && !assignedClass) return res.status(403).json({ error: '此帳號沒有學生名冊權限，或尚未設定導師班級。' });
       let query = supabase.from('students').select('*').order('grade', { ascending: true }).order('class_name', { ascending: true });
       
       const { data, error } = await query;
       if (error) throw error;
 
       // 根據座號轉為數字排序
-      const sortedData = data.sort((a, b) => parseInt(a.seat_number || '0') - parseInt(b.seat_number || '0'));
+      const allowedStudents = canViewAll ? data : data.filter(student => studentClass(student) === assignedClass);
+      const sortedData = allowedStudents.sort((a, b) => parseInt(a.seat_number || '0') - parseInt(b.seat_number || '0'));
       return res.status(200).json(sortedData);
     } 
     

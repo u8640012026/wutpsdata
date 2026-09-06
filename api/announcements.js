@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { roleTags, isSuperAdmin } from '../src/lib/staffAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -34,13 +35,18 @@ export default async function handler(req, res) {
       return res.status(200).json(data || []);
     }
     
+    const uid = req.headers?.['x-line-uid'];
+    if (!uid) return res.status(401).json({ error: '請先登入。' });
+    const { data: staff } = await supabase.from('staff').select('*').eq('line_uid', uid).single();
+    if (!staff || !(isSuperAdmin(staff) || ['1','2','3'].some(tag => roleTags(staff).includes(tag)))) return res.status(403).json({ error: '沒有公告維護權限。' });
+
     if (req.method === 'POST') {
-      const { title, content, author_uid, author_name, expire_at, attachments } = req.body;
+      const { title, content, expire_at, attachments } = req.body;
       
       const { data, error } = await supabase
         .from('announcements')
         .insert([{ 
-          title, content, author_uid, author_name, 
+          title, content, author_uid: uid, author_name: staff.name,
           expire_at: expire_at || null, 
           attachments: attachments || [] 
         }])
@@ -51,10 +57,19 @@ export default async function handler(req, res) {
     }
     
     if (req.method === 'PUT') {
-      const { id, is_archived } = req.body;
+      const { id, is_archived, title, content, expire_at, attachments } = req.body;
+      const { data: existing } = await supabase.from('announcements').select('*').eq('id', id).single();
+      if (!existing) return res.status(404).json({ error: '公告不存在。' });
+      if (!isSuperAdmin(staff) && existing.author_uid !== uid) return res.status(403).json({ error: '只能編修自己的公告。' });
+      const updates = {};
+      if (typeof is_archived === 'boolean') updates.is_archived = is_archived;
+      if (typeof title === 'string') updates.title = title.trim();
+      if (typeof content === 'string') updates.content = content;
+      if (expire_at !== undefined) updates.expire_at = expire_at;
+      if (Array.isArray(attachments)) updates.attachments = attachments;
       const { data, error } = await supabase
         .from('announcements')
-        .update({ is_archived })
+        .update(updates)
         .eq('id', id)
         .select();
         

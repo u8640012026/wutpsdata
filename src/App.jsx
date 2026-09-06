@@ -1,11 +1,11 @@
 import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
 import LiffLogin from './components/LiffLogin';
 import AdminDashboard from './pages/AdminDashboard';
-import TeacherDashboard from './pages/TeacherDashboard';
 import ParentDashboard from './pages/ParentDashboard';
 import RepairDashboard from './pages/RepairDashboard';
 import { translations } from './i18n';
 import liff from '@line/liff';
+import { isSuperAdmin } from './lib/staffAccess';
 import { LayoutDashboard, Wrench, Sun, Moon, Languages, LogOut, User, ChevronDown } from 'lucide-react';
 
 export const AppContext = createContext();
@@ -158,7 +158,7 @@ function App() {
                       <p className={`text-xs mt-0.5 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>
                         {staffData?.department ? `${staffData.department} · ${staffData.title || ''}` : (staffData?.title || t[userRole] || '')}
                       </p>
-                      {(staffData?.role_tags?.includes('0') || staffData?.email?.includes('u864001')) && (
+                      {isSuperAdmin(staffData) && (
                         <div className="mt-1.5 flex items-center gap-1.5">
                           <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
                             最高權限 (Role 0)
@@ -196,8 +196,7 @@ function App() {
 
           {!isCheckingRole && isLoggedIn && currentTab === 'home' && (
             <div className="animate-fade-in">
-              {userRole === 'admin' && <AdminDashboard />}
-              {userRole === 'teacher' && <TeacherDashboard />}
+              {(userRole === 'admin' || userRole === 'teacher') && <AdminDashboard />}
               {userRole === 'parent' && <ParentDashboard />}
             </div>
           )}

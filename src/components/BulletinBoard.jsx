@@ -1,23 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
-import liff from '@line/liff';
-import { 
-  Megaphone, 
-  Plus, 
-  ChevronDown, 
-  Paperclip, 
-  Send, 
-  Download, 
-  FileText, 
-  CheckCircle2, 
-  Clock, 
-  MessageSquare, 
-  AlertCircle, 
-  X, 
-  Check, 
-  Trash2,
-  Archive 
-} from 'lucide-react';
+import { roleTags as getRoleTags, isSuperAdmin } from '../lib/staffAccess';
+import { Plus, ChevronDown, Paperclip, Send, Download, FileText, MessageSquare, X, Archive } from 'lucide-react';
 
 export default function BulletinBoard() {
   const { isDark, staffData, liffProfile } = useApp();
@@ -26,6 +10,7 @@ export default function BulletinBoard() {
   const [isLoading, setIsLoading] = useState(true);
   
   const [isComposing, setIsComposing] = useState(false);
+  const [editingAnnouncement, setEditingAnnouncement] = useState(null);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [expireDays, setExpireDays] = useState('7');
@@ -34,8 +19,8 @@ export default function BulletinBoard() {
   const [showAll, setShowAll] = useState(false); // 控制是否顯示所有公告
 
   // 權限判斷：校長(1)、主任(2)、組長(3) 或 管理者(0)
-  const roleTags = staffData?.role_tags || '';
-  const canPost = ['0', '1', '2', '3'].some(r => roleTags.includes(r));
+  const roleTags = getRoleTags(staffData);
+  const canPost = isSuperAdmin(staffData) || ['1', '2', '3'].some(r => roleTags.includes(r));
   const currentUserUid = liffProfile?.userId || 'dev-admin';
   const currentUserName = staffData?.name || liffProfile?.displayName || '未知使用者';
 
@@ -111,8 +96,8 @@ export default function BulletinBoard() {
     if (!newTitle.trim()) return alert('請填寫標題');
     setIsLoading(true);
     
-    let expire_at = null;
-    if (expireDays !== 'never') {
+    let expire_at = expireDays === 'keep' ? editingAnnouncement?.expire_at : null;
+    if (expireDays !== 'never' && expireDays !== 'keep') {
       const d = new Date();
       d.setDate(d.getDate() + parseInt(expireDays));
       expire_at = d.toISOString();
@@ -120,9 +105,10 @@ export default function BulletinBoard() {
 
     try {
       const res = await fetch('/api/announcements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: editingAnnouncement ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-line-uid': currentUserUid },
         body: JSON.stringify({
+          ...(editingAnnouncement ? { id: editingAnnouncement.id } : {}),
           title: newTitle,
           content: newContent,
           author_uid: currentUserUid,
@@ -131,15 +117,17 @@ export default function BulletinBoard() {
           attachments // 傳送附件陣列
         })
       });
+      if (!res.ok) { const result = await res.json(); throw new Error(result.error || '公告儲存失敗'); }
       if (res.ok) {
         setIsComposing(false);
+        setEditingAnnouncement(null);
         setNewTitle('');
         setNewContent('');
         setAttachments([]);
         fetchAnnouncements();
       }
     } catch (err) {
-      console.error(err);
+      alert('公告儲存失敗：' + err.message);
     }
     setIsLoading(false);
   };
@@ -149,7 +137,7 @@ export default function BulletinBoard() {
     try {
       await fetch('/api/announcements', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-line-uid': currentUserUid },
         body: JSON.stringify({ id, is_archived: true })
       });
       fetchAnnouncements();
@@ -192,7 +180,7 @@ export default function BulletinBoard() {
         
         {canPost && activeTab === 'active' && !isComposing && (
           <button 
-            onClick={() => setIsComposing(true)}
+            onClick={() => { setEditingAnnouncement(null); setNewTitle(''); setNewContent(''); setAttachments([]); setExpireDays('7'); setIsComposing(true); }}
             className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-sm transition-transform active:scale-95"
           >
             <Plus size={14} />
@@ -206,7 +194,7 @@ export default function BulletinBoard() {
         <div className={`p-5 rounded-2xl shadow-sm border-l-4 border-l-emerald-600 border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-stone-200'}`}>
           <div className="flex items-center gap-2 mb-3">
             <FileText size={18} className="text-emerald-600 dark:text-emerald-400" />
-            <h3 className={`font-extrabold text-base ${textColor}`}>張貼新公告</h3>
+            <h3 className={`font-extrabold text-base ${textColor}`}>{editingAnnouncement ? '編修公告' : '張貼新公告'}</h3>
           </div>
           <input 
             type="text" 
@@ -237,6 +225,7 @@ export default function BulletinBoard() {
                   isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-stone-50 border-stone-300 text-stone-900'
                 }`}
               >
+                {editingAnnouncement && <option value="keep">保留原下架時間</option>}
                 <option value="3">3 天後</option>
                 <option value="7">7 天後</option>
                 <option value="14">14 天後</option>
@@ -292,7 +281,7 @@ export default function BulletinBoard() {
               disabled={isLoading || isUploading} 
               className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-700 text-white hover:bg-emerald-800 disabled:bg-stone-400 shadow-sm transition active:scale-95"
             >
-              {isLoading ? '發布中...' : '確認發布'}
+              {isLoading ? '儲存中...' : editingAnnouncement ? '儲存修改' : '確認發布'}
             </button>
           </div>
         </div>
@@ -313,7 +302,9 @@ export default function BulletinBoard() {
               ann={ann} 
               currentUserUid={currentUserUid} 
               currentUserName={currentUserName}
-              canArchive={canPost && activeTab === 'active' && currentUserUid === ann.author_uid}
+              canArchive={canPost && activeTab === 'active' && (isSuperAdmin(staffData) || currentUserUid === ann.author_uid)}
+              canEdit={canPost && (isSuperAdmin(staffData) || currentUserUid === ann.author_uid)}
+              onEdit={() => { setEditingAnnouncement(ann); setNewTitle(ann.title); setNewContent(ann.content || ''); setAttachments(ann.attachments || []); setExpireDays('keep'); setIsComposing(true); }}
               onArchive={() => handleArchive(ann.id)}
             />
           ))}
@@ -337,7 +328,7 @@ export default function BulletinBoard() {
   );
 }
 
-function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, onArchive }) {
+function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, onArchive, canEdit, onEdit }) {
   const { isDark } = useApp();
   const [expanded, setExpanded] = useState(false);
   const [comments, setComments] = useState([]);
@@ -473,6 +464,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
           )}
           
           {/* 下架按鈕 */}
+          {canEdit && <div className="px-4 pb-3"><button onClick={onEdit} className="px-3 py-2 rounded-lg bg-emerald-100 text-emerald-900 font-bold text-xs">編修此公告</button></div>}
           {canArchive && (
             <div className="px-4 pb-3 flex justify-end">
               <button 

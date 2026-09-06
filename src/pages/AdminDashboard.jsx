@@ -1,37 +1,15 @@
 import React, { useState } from 'react';
 import SchoolCalendar from '../components/SchoolCalendar';
 import { useApp } from '../App';
+import { isSchoolAdmin, homeroomClass, roleTags } from '../lib/staffAccess';
 import * as XLSX from 'xlsx';
 import liff from '@line/liff';
-import { supabase } from '../supabaseClient';
-import RepairDashboard from './RepairDashboard';
 import StaffList from '../components/StaffList';
 import StudentList from '../components/StudentList';
 import BulletinBoard from '../components/BulletinBoard';
 import TimetableViewer from '../components/TimetableViewer';
 import SchoolBrain from '../components/SchoolBrain';
-import { 
-  Calendar, 
-  GraduationCap, 
-  Users, 
-  Database, 
-  ShieldCheck, 
-  ArrowLeft, 
-  UploadCloud, 
-  Plus, 
-  CheckCircle2, 
-  AlertCircle, 
-  ChevronRight, 
-  Megaphone,
-  School,
-  Layers,
-  BrainCircuit,
-  Sparkles,
-  Download,
-  FileSpreadsheet,
-  Settings,
-  HardDrive
-} from 'lucide-react';
+import { Calendar, GraduationCap, Users, Database, ShieldCheck, ArrowLeft, UploadCloud, CheckCircle2, AlertCircle, ChevronRight, Megaphone, Layers, Download, HardDrive } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [currentView, setCurrentView] = useState('menu'); // 'menu', 'calendar', 'students', 'timetable', 'superadmin'
@@ -49,8 +27,11 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [backupStatus, setBackupStatus] = useState('');
 
-  const isSuperAdmin = staffData?.role_tags?.includes('0') || staffData?.email?.includes('u864001');
-  const canAccessBrain = ['0', '1', '2', '3'].some(r => staffData?.role_tags?.includes(r)) || isSuperAdmin;
+  const tags = roleTags(staffData);
+  const isSuperAdmin = tags.includes('0') || staffData?.email?.includes('u864001');
+  const isAdmin = isSchoolAdmin(staffData);
+  const canViewStudents = isAdmin || Boolean(homeroomClass(staffData));
+  const canAccessBrain = ['0', '1', '2', '3'].some(r => tags.includes(r)) || isSuperAdmin;
 
   const handleStudentUpload = async (e) => {
     const file = e.target.files[0];
@@ -315,7 +296,7 @@ export default function AdminDashboard() {
   }
 
   // ── 學生總覽頁 ──
-  if (currentView === 'students') {
+  if (currentView === 'students' && canViewStudents) {
     return (
       <div className="space-y-6 pb-8">
         <button 
@@ -514,8 +495,8 @@ export default function AdminDashboard() {
     <div className="space-y-6 pb-8">
       {/* 頂部標題 */}
       <div>
-        <h2 className={`text-2xl font-black tracking-tight ${textColor}`}>{t.adminTitle}</h2>
-        <p className={`text-sm mt-0.5 ${subTextColor}`}>{t.adminDesc}</p>
+        <h2 className={`text-2xl font-black tracking-tight ${textColor}`}>{isAdmin ? t.adminTitle : '教師校務專區'}</h2>
+        <p className={`text-sm mt-0.5 ${subTextColor}`}>{isAdmin ? t.adminDesc : '查閱公告、行事曆與課表'}</p>
       </div>
 
       {/* 區塊 1：公告專區 (綠色系) */}
@@ -567,7 +548,7 @@ export default function AdminDashboard() {
         </button>
 
         {/* 學生名冊與資料總覽按鈕區塊 */}
-        <button 
+        {canViewStudents && <button
           onClick={() => setCurrentView('students')}
           className={`p-5 rounded-2xl shadow-sm flex items-center justify-between transition-all active:scale-[0.99] border text-left ${
             isDark 
@@ -581,18 +562,18 @@ export default function AdminDashboard() {
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className={`text-lg font-extrabold ${isDark ? 'text-sky-200' : 'text-sky-950'}`}>{t.rosterTitle}</h3>
+                <h3 className={`text-lg font-extrabold ${isDark ? 'text-sky-200' : 'text-sky-950'}`}>{isAdmin ? t.rosterTitle : '本班學生資料'}</h3>
                 <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-sky-200/80 text-sky-900 dark:bg-sky-900/60 dark:text-sky-200 border border-sky-300 dark:border-sky-700/60">
-                  全校學籍資料
+                  {isAdmin ? '全校學籍資料' : homeroomClass(staffData)}
                 </span>
               </div>
               <p className={`text-sm mt-1 leading-relaxed ${isDark ? 'text-sky-300/80' : 'text-sky-800/80'}`}>
-                {t.rosterDesc}，支援跨班多選、自學篩選、醫療及身分資料
+                {isAdmin ? `${t.rosterDesc}，支援跨班多選、自學篩選、醫療及身分資料` : '查看自己班級的學生名冊與資料'}
               </p>
             </div>
           </div>
           <ChevronRight size={22} className={`flex-shrink-0 ${isDark ? 'text-sky-400' : 'text-sky-600'}`} />
-        </button>
+        </button>}
 
         {/* 全校教師授課總課表 (青綠系按鈕區塊) */}
         <button 

@@ -1,19 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
-import { 
-  Check, 
-  X, 
-  ShieldCheck, 
-  UserPlus, 
-  Edit3, 
-  Trash2, 
-  Unlink, 
-  Search, 
-  Filter, 
-  Save, 
-  Sparkles,
-  AlertCircle
-} from 'lucide-react';
+import { Check, X, ShieldCheck, UserPlus, Edit3, Trash2, Unlink, Search, Save } from 'lucide-react';
 
 const DEPARTMENTS = [
   '校長室',
