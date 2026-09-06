@@ -1,22 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar as CalendarIcon, 
   Clock, 
   MapPin, 
-  Users, 
-  Building, 
   Plus, 
   X, 
   RefreshCw, 
   Maximize2, 
   Minimize2, 
   ChevronRight, 
-  ChevronLeft, 
   Check, 
-  AlertCircle,
-  FileText,
-  Filter
+  AlertCircle
 } from 'lucide-react';
 import { useApp } from '../App';
 

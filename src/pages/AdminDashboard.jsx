@@ -145,11 +145,15 @@ export default function AdminDashboard() {
           throw new Error('未找到有效資料，請確保包含「電子信箱」欄位');
         }
 
-        const response = await fetch('/api/staff_import', {
+        const line_uid = liff.isLoggedIn() ? (await liff.getProfile()).userId : 'dev-admin';
+        const response = await fetch('/api/staff?action=import', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-line-uid': line_uid
+          },
           body: JSON.stringify({
-            line_uid: liff.isLoggedIn() ? (await liff.getProfile()).userId : 'dev-admin',
+            line_uid,
             staffData: formattedData
           })
         });

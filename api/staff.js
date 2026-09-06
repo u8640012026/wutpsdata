@@ -57,6 +57,50 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
+      // 支援批次匯入 (Batch Import)
+      if (req.query?.action === 'import' || Array.isArray(req.body?.staffData)) {
+        const { staffData } = req.body;
+        if (!staffData || !Array.isArray(staffData)) {
+          return res.status(400).json({ error: 'Missing parameters or invalid data' });
+        }
+
+        // 選擇性更新策略 (Selective Upsert)：保留舊有的 line_uid (LINE 綁定資訊)
+        const emails = staffData.map(s => s.email);
+        const { data: existingStaff } = await supabase.from('staff').select('email, line_uid').in('email', emails);
+        
+        const lineUidMap = {};
+        if (existingStaff) {
+          existingStaff.forEach(s => {
+            if (s.line_uid) lineUidMap[s.email] = s.line_uid;
+          });
+        }
+
+        const finalData = staffData.map(s => {
+          const existingLineUid = lineUidMap[s.email];
+          if (existingLineUid) {
+            return { ...s, line_uid: existingLineUid };
+          }
+          return s;
+        });
+
+        const { error } = await supabase
+          .from('staff')
+          .upsert(finalData, { onConflict: 'email' });
+
+        if (error) throw error;
+        
+        await supabase.from('audit_logs').insert({
+          actor_uid: line_uid,
+          actor_role: 'admin',
+          action: 'IMPORT_STAFF',
+          target_table: 'staff',
+          details: { count: staffData.length, timestamp: new Date().toISOString() }
+        });
+
+        return res.status(200).json({ success: true, count: staffData.length });
+      }
+
+      // 單筆手動新增
       const { name, email, department, title, class_assigned, role_tags } = req.body;
       if (!name || !email) return res.status(400).json({ error: '姓名與電子信箱為必填欄位' });
 
