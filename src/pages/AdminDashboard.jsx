@@ -37,7 +37,13 @@ export default function AdminDashboard() {
   const [currentView, setCurrentView] = useState('menu'); // 'menu', 'calendar', 'students', 'timetable', 'superadmin'
   const [superadminTab, setSuperadminTab] = useState('whitelist'); // 'whitelist', 'import', 'backup'
   const [isCalendarFullScreen, setIsCalendarFullScreen] = useState(false);
-  const { isDark, t, staffData } = useApp();
+  const { isDark, t, staffData, setHideBottomNav } = useApp();
+
+  // 進入第二層子頁面時自動隱藏底部導覽列，放大手機可視範圍並防遮擋
+  React.useEffect(() => {
+    setHideBottomNav?.(currentView !== 'menu');
+    return () => setHideBottomNav?.(false);
+  }, [currentView, setHideBottomNav]);
   
   const [uploadStatus, setUploadStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);

@@ -95,10 +95,11 @@ function App() {
     setMenuOpen(false);
   };
 
+  const [hideBottomNav, setHideBottomNav] = useState(false);
   const toggleTheme = () => setIsDark(!isDark);
   const toggleLang = () => setLang(lang === 'zh' ? 'en' : 'zh');
 
-  const contextValue = { lang, isDark, t, handleLogout, liffProfile, staffData, userRole };
+  const contextValue = { lang, isDark, t, handleLogout, liffProfile, staffData, userRole, hideBottomNav, setHideBottomNav };
 
   return (
     <AppContext.Provider value={contextValue}>
@@ -180,7 +181,7 @@ function App() {
         )}
 
         {/* ── 主內容區（Header 高 3.5rem + 8px 間距 = pt-[60px]）── */}
-        <main className={`flex-1 w-full mx-auto ${isLoggedIn ? 'max-w-6xl pb-24 pt-[60px] px-4 sm:px-8' : 'max-w-md p-0'}`}>
+        <main className={`flex-1 w-full mx-auto ${isLoggedIn ? `max-w-6xl ${hideBottomNav ? 'pb-8' : 'pb-24'} pt-[60px] px-4 sm:px-8` : 'max-w-md p-0'}`}>
 
           {isCheckingRole && (
             <div className="flex flex-col items-center justify-center min-h-[100dvh]">
@@ -208,9 +209,9 @@ function App() {
           )}
         </main>
 
-        {/* ── 底部導覽列（毛玻璃，全寬，僅 2 個分頁）── */}
-        {isLoggedIn && (
-          <nav className={`fixed bottom-0 left-0 right-0 z-50 h-16 flex justify-around items-center border-t backdrop-blur-md ${isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-stone-200'}`}>
+        {/* ── 底部導覽列（毛玻璃，全寬，僅 2 個分頁，進入二層子頁自動隱藏，避免遮擋按鈕）── */}
+        {isLoggedIn && !hideBottomNav && (
+          <nav className={`fixed bottom-0 left-0 right-0 z-40 h-16 flex justify-around items-center border-t backdrop-blur-md transition-all ${isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-stone-200'}`}>
             <button
               onClick={() => setCurrentTab('home')}
               className={`flex flex-col items-center justify-center gap-1 w-full h-full transition-all active:scale-95 ${currentTab === 'home' ? 'text-emerald-700 dark:text-emerald-400' : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-400 hover:text-stone-600'}`}

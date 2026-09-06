@@ -22,8 +22,14 @@ import {
 } from 'lucide-react';
 
 export default function RepairDashboard() {
-  const { isDark } = useApp();
+  const { isDark, setHideBottomNav } = useApp();
   const [view, setView] = useState('list'); // 'list', 'form', 'detail'
+
+  // 填報表單或檢視詳情時自動隱藏底部導覽列
+  useEffect(() => {
+    setHideBottomNav?.(view !== 'list');
+    return () => setHideBottomNav?.(false);
+  }, [view, setHideBottomNav]);
   const [filter, setFilter] = useState('all'); // 'all', 'repair', 'purchase'
   const [repairs, setRepairs] = useState([]);
   const [selectedRepair, setSelectedRepair] = useState(null);

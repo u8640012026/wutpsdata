@@ -601,10 +601,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         </div>
       )}
 
-      {/* ── 活動詳情與管理彈窗 (含編輯與刪除權限控制) ── */}
+      {/* ── 活動詳情與管理彈窗 (含編輯與刪除權限控制，頂級 z-index 確保不被遮擋) ── */}
       <AnimatePresence>
         {selectedEvent && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -686,10 +686,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         )}
       </AnimatePresence>
 
-      {/* ── 新增 / 編輯活動滿版右側滑出抽屜 (Slide-over Drawer) ── */}
+      {/* ── 新增 / 編輯活動滿版右側滑出抽屜 (Slide-over Drawer，頂級 z-[70] 絕不被底部導覽列遮擋) ── */}
       <AnimatePresence>
         {isDrawerOpen && (
-          <div className="fixed inset-0 z-50 overflow-hidden">
+          <div className="fixed inset-0 z-[70] overflow-hidden">
             {/* 遮罩背景 */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -706,7 +706,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                 animate={{ x: 0 }}
                 exit={{ x: '100%' }}
                 transition={{ type: 'spring', damping: 28, stiffness: 280 }}
-                className="w-screen max-w-lg bg-white dark:bg-slate-900 border-l border-stone-200 dark:border-slate-800 shadow-2xl flex flex-col"
+                className="w-screen max-w-lg bg-white dark:bg-slate-900 border-l border-stone-200 dark:border-slate-800 shadow-2xl flex flex-col h-[100dvh] overflow-hidden"
               >
                 {/* 抽屜頂部 Header */}
                 <div className="p-5 border-b border-stone-100 dark:border-slate-800 flex items-center justify-between shrink-0">
@@ -732,9 +732,11 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                   </button>
                 </div>
 
-                {/* 抽屜表單內容 (可滾動) */}
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-5">
-                  {/* 1. 所屬行事曆（三選一） */}
+                {/* 抽屜表單本體 (Flex-1 結構，按鈕永久固定在底端) */}
+                <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                  {/* 可滾動的輸入內容區塊 */}
+                  <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                    {/* 1. 所屬行事曆（三選一） */}
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
                       所屬行事曆
@@ -1101,16 +1103,17 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                       className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-stone-50/50 dark:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
+                  </div>
 
-                  {/* 抽屜底層送出按鈕 */}
-                  <div className="pt-4 border-t border-stone-100 dark:border-slate-800">
+                  {/* 抽屜底層固定送出列 (Sticky / 獨立 Flex 底欄，帶毛玻璃與充足安全邊距，絕不被遮擋) */}
+                  <div className="p-4 bg-white/95 dark:bg-slate-900/95 border-t border-stone-100 dark:border-slate-800 backdrop-blur-md shrink-0 pb-8 sm:pb-5">
                     <button
                       type="submit"
                       disabled={isSubmitting || submitSuccess}
-                      className={`w-full py-3 rounded-xl text-xs font-bold text-white transition-all flex items-center justify-center gap-2 shadow-lg ${
+                      className={`w-full py-3.5 rounded-xl text-xs font-bold text-white transition-all flex items-center justify-center gap-2 shadow-lg active:scale-[0.99] ${
                         submitSuccess
                           ? 'bg-emerald-700 shadow-emerald-700/25'
-                          : 'bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] shadow-emerald-600/25'
+                          : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/25'
                       }`}
                     >
                       {submitSuccess ? (
