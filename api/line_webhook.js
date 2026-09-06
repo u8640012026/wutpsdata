@@ -511,6 +511,61 @@ export default async function handler(req, res) {
     if (event.type === 'message' && event.message?.type === 'text') {
       const userMessage = event.message.text.trim();
       const replyToken = event.replyToken;
+      const lowerMsg = userMessage.toLowerCase().replace(/[\s\t\r\n]+/g, '');
+
+      // ── 關鍵字攔截 1：若詢問「學校網址 / 學校首頁 / 校網 / 官網」 ──
+      const isOfficialWebKeyword = [
+        '學校網址', '學校首頁', '校網', '學校官網', '官網', '學校網站', 
+        '霧小首頁', '霧臺國小首頁', '霧小網址', '霧臺國小網址'
+      ].includes(lowerMsg);
+
+      if (isOfficialWebKeyword) {
+        const officialWebReply = `🏫【屏東縣霧臺國民小學 官方首頁】\n\n歡迎瀏覽學校官方首頁，查詢校園最新公告、學校介紹、榮譽榜與活動剪影：\n👉 https://www.wutps.ptc.edu.tw/\n\n（若您需要登入校務行政中心、課表或行事曆後台，請輸入「選單」或「系統」）`;
+        if (replyToken === 'test') {
+          return res.status(200).json({ status: 'ok', keyword: 'official_web', testReply: officialWebReply });
+        }
+        if (channelAccessToken && replyToken) {
+          await fetch('https://api.line.me/v2/bot/message/reply', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${channelAccessToken}`
+            },
+            body: JSON.stringify({
+              replyToken: replyToken,
+              messages: [{ type: 'text', text: officialWebReply }]
+            })
+          });
+        }
+        continue;
+      }
+
+      // ── 關鍵字攔截 2：若輸入「選單 / 後台 / 系統 / 登入 / 網址 / 校務系統 / liff」 ──
+      const isSystemKeyword = [
+        '選單', '後台', '系統', '登入', '網址', '校務系統', '系統網址', 
+        '後台網址', '行政中心', 'menu', 'login', 'liff', '後台登入', '系統登入'
+      ].includes(lowerMsg);
+
+      if (isSystemKeyword) {
+        const systemReply = `📱【霧臺國小 校務行政中心系統入口】\n\n歡迎使用霧臺國小校務管理系統，請依您的使用裝置點擊對應連結：\n\n📲 手機用戶（直接以 LINE LIFF 免登入開啟）：\n👉 https://liff.line.me/2011376584-Ia2rhpXU\n\n💻 電腦用戶（以電腦瀏覽器開啟）：\n👉 https://wutpsdata.vercel.app\n\n🏫 學校官方首頁：\n👉 https://www.wutps.ptc.edu.tw/\n\n💡 提示：電腦版同仁點擊電腦專用網址即可直接進入後台使用行事曆、公告、學生名冊與校務大腦！`;
+        if (replyToken === 'test') {
+          return res.status(200).json({ status: 'ok', keyword: 'system_menu', testReply: systemReply });
+        }
+        if (channelAccessToken && replyToken) {
+          await fetch('https://api.line.me/v2/bot/message/reply', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${channelAccessToken}`
+            },
+            body: JSON.stringify({
+              replyToken: replyToken,
+              messages: [{ type: 'text', text: systemReply }]
+            })
+          });
+        }
+        continue;
+      }
 
       try {
         const aiResult = await askSchoolAI(userMessage, { geminiApiKey, groqApiKey });
