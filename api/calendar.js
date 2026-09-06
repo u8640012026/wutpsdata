@@ -2,7 +2,7 @@ const GAS_URL = process.env.CALENDAR_GAS_URL || 'https://script.google.com/macro
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -14,10 +14,6 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const type = (req.query.type || 'all').toLowerCase();
 
-      // 決定要向 GAS 抓取的日曆清單
-      // all: 抓取全校共通、霧臺、勵古三組日曆並合併
-      // wutai: 抓取全校共通 + 霧臺
-      // ligu: 抓取全校共通 + 勵古
       let targetTypes = ['all', 'wutai', 'ligu'];
       if (type === 'wutai') {
         targetTypes = ['all', 'wutai'];
@@ -27,7 +23,6 @@ export default async function handler(req, res) {
         targetTypes = ['all'];
       }
 
-      // 平行向 GAS 抓取各行事曆事件
       const fetchPromises = targetTypes.map(async (t) => {
         try {
           const r = await fetch(`${GAS_URL}?type=${t}`);
@@ -49,7 +44,6 @@ export default async function handler(req, res) {
 
       const results = await Promise.all(fetchPromises);
       
-      // 合併並依 ID 去重
       const eventMap = new Map();
       results.flat().forEach(ev => {
         if (ev && ev.id) {
@@ -58,7 +52,6 @@ export default async function handler(req, res) {
       });
 
       const combinedEvents = Array.from(eventMap.values());
-      // 依開始時間由近到遠排序
       combinedEvents.sort((a, b) => new Date(a.start) - new Date(b.start));
 
       return res.status(200).json({
@@ -69,28 +62,77 @@ export default async function handler(req, res) {
       });
     }
 
-    // ── 新增活動 (POST) ──
-    if (req.method === 'POST') {
-      let payload = req.body;
-      if (typeof payload === 'string') {
-        try {
-          payload = JSON.parse(payload);
-        } catch (e) {
-          console.error('Body parse error:', e);
-        }
+    // 解析 Payload (相容物件或字串)
+    let payload = req.body;
+    if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload);
+      } catch (e) {
+        console.error('Body parse error:', e);
+      }
+    }
+
+    // ── 刪除活動 (DELETE 或 POST with action: 'delete') ──
+    if (req.method === 'DELETE' || (req.method === 'POST' && payload?.action === 'delete')) {
+      const { eventId, calendarType } = payload || {};
+      if (!eventId) {
+        return res.status(400).json({ status: 'error', message: '缺少 eventId' });
       }
 
+      const gasResponse = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete',
+          eventId,
+          calendarType: calendarType || 'all'
+        })
+      });
+
+      const gasData = await gasResponse.json();
+      return res.status(gasResponse.ok ? 200 : gasResponse.status).json(gasData);
+    }
+
+    // ── 編輯活動 (PUT 或 POST with action: 'update') ──
+    if (req.method === 'PUT' || (req.method === 'POST' && payload?.action === 'update')) {
+      const { eventId, calendarType, title, location, description, startTime, endTime, isAllDay } = payload || {};
+      if (!eventId || !title || !startTime) {
+        return res.status(400).json({ status: 'error', message: '缺少活動 ID (eventId)、名稱 (title) 或開始時間 (startTime)' });
+      }
+
+      const gasResponse = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          eventId,
+          calendarType: calendarType || 'all',
+          title: title.trim(),
+          location: location ? location.trim() : '',
+          description: description ? description.trim() : '',
+          startTime,
+          endTime: endTime || startTime,
+          isAllDay: Boolean(isAllDay)
+        })
+      });
+
+      const gasData = await gasResponse.json();
+      return res.status(gasResponse.ok ? 200 : gasResponse.status).json(gasData);
+    }
+
+    // ── 新增活動 (POST) ──
+    if (req.method === 'POST') {
       const { calendarType, title, location, description, startTime, endTime, isAllDay } = payload || {};
 
       if (!title || !startTime) {
         return res.status(400).json({ status: 'error', message: '缺少活動名稱 (title) 或開始時間 (startTime)' });
       }
 
-      // 轉發給 Google Apps Script
       const gasResponse = await fetch(GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'create',
           calendarType: calendarType || 'all',
           title: title.trim(),
           location: location ? location.trim() : '',

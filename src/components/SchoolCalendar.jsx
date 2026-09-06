@@ -11,9 +11,20 @@ import {
   Minimize2, 
   ChevronRight, 
   Check, 
-  AlertCircle
+  AlertCircle,
+  Edit2,
+  Trash2,
+  UserCheck
 } from 'lucide-react';
 import { useApp } from '../App';
+
+// SWR 前端記憶體快取（保證切換頁面 0 毫秒極速秒開）
+const calendarMemoryCache = {
+  all: null,
+  wutai: null,
+  ligu: null,
+  timestamp: 0
+};
 
 // 學校作息節次表（霧臺國小標準 14 節次）
 const PERIODS = [
@@ -46,23 +57,24 @@ const KINDERGARTEN_CLASSES = ['小陶壺 (霧臺)', '小百合 (勵古)', '小�
 const DEPARTMENTS = ['教務處', '學務處', '總務處', '輔導室', '幼兒園', '校長室'];
 
 export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
-  const { isDark, staffData } = useApp();
+  const { staffData } = useApp();
   
   // 權限判斷：Role 0(超管), 1(校長), 2(主任), 3(組長) 具備新增權限
   const roleTags = staffData?.role_tags || '';
-  const canManage = roleTags.includes('0') || roleTags.includes('1') || roleTags.includes('2') || roleTags.includes('3') || staffData?.email?.includes('u864001');
+  const isSuperAdmin = roleTags.includes('0') || staffData?.email?.includes('u864001');
+  const canManage = isSuperAdmin || roleTags.includes('1') || roleTags.includes('2') || roleTags.includes('3');
+  const currentUid = staffData?.line_uid || '';
+  const currentUserName = staffData?.name || '';
   
-  // 狀態管理
+  // 狀態管理（優先讀取記憶體快取，實現 0 毫秒極速切換）
   const [filterType, setFilterType] = useState('all'); // all, wutai, ligu
-  const [events, setEvents] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [events, setEvents] = useState(() => calendarMemoryCache['all'] || []);
+  const [isLoading, setIsLoading] = useState(() => !calendarMemoryCache['all']);
   const [errorMsg, setErrorMsg] = useState('');
   
-  // 檢視模式：timeline (時間軸), list (清單)
-  const [viewMode, setViewMode] = useState('timeline');
-  
-  // 抽屜頁狀態
+  // 抽屜頁狀態 (新增 / 編輯)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [editingEventId, setEditingEventId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   
@@ -87,27 +99,38 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     notes: ''
   });
 
-  // 載入日曆活動
-  const loadEvents = async () => {
-    setIsLoading(true);
+  // 載入日曆活動（支援 isSilent 背景靜默更新）
+  const loadEvents = async (isSilent = false) => {
+    if (!isSilent) {
+      setIsLoading(true);
+    }
     setErrorMsg('');
     try {
       const res = await fetch(`/api/calendar?type=${filterType}`);
       const json = await res.json();
       if (json.status === 'success' && Array.isArray(json.data)) {
+        calendarMemoryCache[filterType] = json.data;
+        calendarMemoryCache.timestamp = Date.now();
         setEvents(json.data);
       } else {
-        setErrorMsg(json.message || '無法取得日曆資料');
+        if (!isSilent) setErrorMsg(json.message || '無法取得日曆資料');
       }
-    } catch (err) {
-      setErrorMsg('連線異常，請稍後重試');
+    } catch (_err) {
+      if (!isSilent) setErrorMsg('連線異常，請稍後重試');
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadEvents();
+    if (calendarMemoryCache[filterType]) {
+      setEvents(calendarMemoryCache[filterType]);
+      setIsLoading(false);
+      // 背景靜默刷新最新資料
+      loadEvents(true);
+    } else {
+      loadEvents(false);
+    }
   }, [filterType]);
 
   // 依登入者預設承辦處室
@@ -119,6 +142,92 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       }
     }
   }, [staffData]);
+
+  // 開啟新增活動抽屜
+  const handleOpenCreate = () => {
+    setEditingEventId(null);
+    setFormData({
+      calendarType: filterType === 'all' ? 'all' : filterType,
+      title: '',
+      date: new Date().toISOString().slice(0, 10),
+      timeMode: 'all_day',
+      allDayType: 'full',
+      startPeriod: 'p1',
+      endPeriod: 'p4',
+      customStartTime: '09:00',
+      customEndTime: '10:00',
+      location: '',
+      isAllClasses: true,
+      selectedClasses: [],
+      department: DEPARTMENTS[0],
+      notes: ''
+    });
+    setSubmitSuccess(false);
+    setIsDrawerOpen(true);
+  };
+
+  // 開啟編輯活動抽屜
+  const handleOpenEdit = (ev) => {
+    setEditingEventId(ev.id);
+    setSelectedEvent(null);
+
+    const startDate = ev.start ? ev.start.slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const startT = ev.start ? ev.start.slice(11, 16) : '09:00';
+    const endT = ev.end ? ev.end.slice(11, 16) : '10:00';
+
+    setFormData({
+      calendarType: ev.calendarType || 'all',
+      title: ev.title || '',
+      date: startDate,
+      timeMode: ev.isAllDay ? 'all_day' : 'custom',
+      allDayType: 'full',
+      startPeriod: 'p1',
+      endPeriod: 'p4',
+      customStartTime: startT,
+      customEndTime: endT,
+      location: ev.location || '',
+      isAllClasses: !ev.description || ev.description.includes('全校所有班級'),
+      selectedClasses: [],
+      department: DEPARTMENTS[0],
+      notes: ev.description || ''
+    });
+    setSubmitSuccess(false);
+    setIsDrawerOpen(true);
+  };
+
+  // 刪除活動
+  const handleDeleteEvent = async (eventId, calendarType) => {
+    if (!window.confirm('確定要從 Google 日曆永久刪除此活動嗎？\n（此動作將直接自雲端日曆移除）')) {
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/calendar', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete',
+          eventId,
+          calendarType
+        })
+      });
+      const json = await res.json();
+      if (json.status === 'success') {
+        setSelectedEvent(null);
+        // 清空快取並立即重新整理
+        calendarMemoryCache.all = null;
+        calendarMemoryCache.wutai = null;
+        calendarMemoryCache.ligu = null;
+        await loadEvents(false);
+      } else {
+        alert(json.message || '刪除失敗');
+      }
+    } catch (_err) {
+      alert('刪除請求失敗，請檢查網路狀態');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // 日期快速帶入
   const setQuickDate = (type) => {
@@ -148,7 +257,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     });
   };
 
-  // 送出新增活動
+  // 送出新增 / 編輯活動
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.title.trim()) {
@@ -193,103 +302,135 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       if (formData.timeMode === 'periods') {
         const startP = PERIODS.find(p => p.id === formData.startPeriod);
         const endP = PERIODS.find(p => p.id === formData.endPeriod);
-        desc += `\n【學校節次】：${startP?.name || ''} 至 ${endP?.name || ''}`;
+        desc += `\n【作息節次】：${startP?.name || ''} 至 ${endP?.name || ''}`;
       }
       if (formData.notes.trim()) {
-        desc += `\n【備註說明】：${formData.notes.trim()}`;
+        desc += `\n【詳細備註】：${formData.notes.trim()}`;
       }
 
-      const payload = {
-        calendarType: formData.calendarType,
-        title: formData.title.trim(),
-        location: formData.location.trim(),
-        description: desc,
-        startTime,
-        endTime,
-        isAllDay
-      };
+      // 自動記錄建立者身分 (利於權限稽核與編輯)
+      const creatorSign = currentUserName 
+        ? `\n【建立者】：${currentUserName} (UID: ${currentUid || 'admin'})`
+        : '';
+      desc += creatorSign;
 
-      const res = await fetch('/api/calendar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      let res;
+      if (editingEventId) {
+        // 編輯活動 (PUT)
+        res = await fetch('/api/calendar', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'update',
+            eventId: editingEventId,
+            calendarType: formData.calendarType,
+            title: formData.title.trim(),
+            location: formData.location.trim(),
+            description: desc,
+            startTime,
+            endTime,
+            isAllDay
+          })
+        });
+      } else {
+        // 新增活動 (POST)
+        res = await fetch('/api/calendar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create',
+            calendarType: formData.calendarType,
+            title: formData.title.trim(),
+            location: formData.location.trim(),
+            description: desc,
+            startTime,
+            endTime,
+            isAllDay
+          })
+        });
+      }
 
-      const resJson = await res.json();
-      if (resJson.status === 'success') {
+      const resData = await res.json();
+      if (res.ok && resData.status === 'success') {
         setSubmitSuccess(true);
+        // 清除記憶體快取以強制讀取最新資料
+        calendarMemoryCache.all = null;
+        calendarMemoryCache.wutai = null;
+        calendarMemoryCache.ligu = null;
+
         setTimeout(() => {
-          setSubmitSuccess(false);
           setIsDrawerOpen(false);
-          loadEvents();
-          // 重置表單
-          setFormData(prev => ({
-            ...prev,
-            title: '',
-            notes: '',
-            isAllClasses: true,
-            selectedClasses: []
-          }));
+          setEditingEventId(null);
+          loadEvents(false);
         }, 1200);
       } else {
-        alert(`新增失敗：${resJson.message || '請重試'}`);
+        alert(resData.message || '操作失敗，請稍後重試');
       }
     } catch (err) {
-      alert(`送出異常：${err.message}`);
+      alert(`發生錯誤：${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // 樣式輔助工具
+  // 輔助函式：判斷是否擁有編輯/刪除權限
+  const canModifyEvent = (ev) => {
+    if (!ev) return false;
+    if (isSuperAdmin) return true; // Role 0 超級管理員擁有所有事件的修改/刪除權限
+    if (currentUid && ev.description && ev.description.includes(currentUid)) return true;
+    if (currentUserName && ev.description && ev.description.includes(`【建立者】：${currentUserName}`)) return true;
+    return false;
+  };
+
+  // 輔助函式：校區色彩標籤樣式
   const getCalendarBadge = (calType) => {
     switch (calType) {
       case 'wutai':
         return {
           label: '霧臺校區',
-          container: 'bg-emerald-50 border-emerald-200 text-emerald-950 dark:bg-emerald-950/50 dark:border-emerald-800 dark:text-emerald-200',
-          badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+          badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+          dot: 'bg-emerald-500',
+          border: 'border-l-emerald-500'
         };
       case 'ligu':
         return {
           label: '勵古百合',
-          container: 'bg-rose-50 border-rose-200 text-rose-950 dark:bg-rose-950/50 dark:border-rose-800 dark:text-rose-200',
-          badge: 'bg-rose-100 text-rose-800 dark:bg-rose-900/80 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+          badge: 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border-rose-200 dark:border-rose-800',
+          dot: 'bg-rose-500',
+          border: 'border-l-rose-500'
         };
       default:
         return {
           label: '全校共通',
-          container: 'bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-950/50 dark:border-blue-800 dark:text-blue-200',
-          badge: 'bg-blue-100 text-blue-800 dark:bg-blue-900/80 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+          badge: 'bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+          dot: 'bg-blue-500',
+          border: 'border-l-blue-500'
         };
     }
   };
 
-  const formatEventTime = (ev) => {
-    if (ev.isAllDay) return '全天活動';
-    try {
-      const s = new Date(ev.start);
-      const e = new Date(ev.end);
-      const formatDigit = (n) => String(n).padStart(2, '0');
-      return `${formatDigit(s.getHours())}:${formatDigit(s.getMinutes())} - ${formatDigit(e.getHours())}:${formatDigit(e.getMinutes())}`;
-    } catch {
-      return '';
-    }
+  // 格式化日期顯示
+  const formatEventDate = (dateStr) => {
+    if (!dateStr) return { month: '', day: '', weekday: '', full: '' };
+    const date = new Date(dateStr);
+    const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+    return {
+      month: `${date.getMonth() + 1}月`,
+      day: `${date.getDate()}`,
+      weekday: weekdays[date.getDay()],
+      full: `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
+    };
   };
 
-  const formatEventDate = (isoStr) => {
-    try {
-      const d = new Date(isoStr);
-      const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
-      return {
-        month: d.getMonth() + 1,
-        day: d.getDate(),
-        weekday: weekdays[d.getDay()],
-        full: `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
-      };
-    } catch {
-      return { month: '', day: '', weekday: '', full: '' };
-    }
+  // 格式化時間區間
+  const formatEventTime = (ev) => {
+    if (ev.isAllDay) return '全天活動';
+    if (!ev.start) return '';
+    const start = new Date(ev.start);
+    const end = ev.end ? new Date(ev.end) : start;
+    const startStr = `${start.getHours().toString().padStart(2, '0')}:${start.getMinutes().toString().padStart(2, '0')}`;
+    const endStr = `${end.getHours().toString().padStart(2, '0')}:${end.getMinutes().toString().padStart(2, '0')}`;
+    return `${startStr} - ${endStr}`;
   };
 
   return (
@@ -336,9 +477,12 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         <div className="flex items-center gap-2">
           {/* 重新整理 */}
           <button
-            onClick={loadEvents}
+            onClick={() => {
+              calendarMemoryCache[filterType] = null;
+              loadEvents(false);
+            }}
             disabled={isLoading}
-            className="p-2 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-slate-800 transition"
+            className="p-2 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-slate-800 transition shadow-xs"
             title="從 Google 日曆重新整理"
           >
             <RefreshCw size={15} className={isLoading ? 'animate-spin' : ''} />
@@ -348,18 +492,18 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
           {onToggleFullScreen && (
             <button
               onClick={onToggleFullScreen}
-              className="p-2 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-slate-800 transition"
-              title={isFullScreen ? '退出全螢幕' : '全頁檢視'}
+              className="p-2 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-slate-800 transition shadow-xs"
+              title={isFullScreen ? '退出全頁' : '全頁檢視'}
             >
               {isFullScreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
             </button>
           )}
 
-          {/* 新增活動（毛玻璃森林綠） */}
+          {/* 新增活動 */}
           {canManage && (
             <button
-              onClick={() => setIsDrawerOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 shadow-md shadow-emerald-600/25 backdrop-blur-md transition-all"
+              onClick={handleOpenCreate}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 shadow-md shadow-emerald-600/25 transition-all"
             >
               <Plus size={15} />
               <span>新增活動</span>
@@ -377,7 +521,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       )}
 
       {/* ── 行事曆內容檢視區 ── */}
-      {isLoading ? (
+      {isLoading && events.length === 0 ? (
         <div className="py-16 text-center space-y-3">
           <RefreshCw size={24} className="animate-spin mx-auto text-emerald-600" />
           <p className="text-xs text-stone-400 dark:text-stone-500 font-medium">連線 Google 行事曆同步中...</p>
@@ -394,36 +538,45 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
             const badgeStyle = getCalendarBadge(ev.calendarType);
             const dateInfo = formatEventDate(ev.start);
             const timeStr = formatEventTime(ev);
+            const canMod = canModifyEvent(ev);
 
             return (
               <motion.div
                 key={ev.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
+                layout
                 onClick={() => setSelectedEvent(ev)}
-                className={`p-4 rounded-2xl border transition-all cursor-pointer hover:shadow-md hover:scale-[1.005] active:scale-[0.995] ${badgeStyle.container}`}
+                className={`p-4 rounded-2xl border bg-white dark:bg-slate-900 shadow-xs hover:shadow-md transition-all cursor-pointer border-l-4 ${badgeStyle.border} border-stone-200 dark:border-slate-800 active:scale-[0.99]`}
               >
                 <div className="flex items-start justify-between gap-3">
-                  {/* 左側：日期方塊 + 標題內容 */}
                   <div className="flex items-start gap-3.5 min-w-0">
-                    {/* 日期小標籤 */}
-                    <div className="shrink-0 text-center px-2.5 py-1.5 rounded-xl bg-white/80 dark:bg-slate-900/80 shadow-xs border border-stone-200/50 dark:border-slate-700/50 min-w-[52px]">
-                      <span className="block text-[10px] font-bold text-stone-400 dark:text-stone-500">{dateInfo.weekday}</span>
-                      <span className="block text-base font-black leading-tight text-stone-800 dark:text-stone-100">{dateInfo.month}/{dateInfo.day}</span>
+                    {/* 左側日期卡塊 */}
+                    <div className="w-12 h-12 rounded-xl bg-stone-100 dark:bg-slate-800 flex flex-col items-center justify-center shrink-0 border border-stone-200/60 dark:border-slate-700">
+                      <span className="text-[10px] font-bold text-stone-500 dark:text-stone-400">{dateInfo.month}</span>
+                      <span className="text-base font-black text-stone-900 dark:text-stone-100 leading-none">{dateInfo.day}</span>
                     </div>
 
-                    {/* 活動核心資訊 */}
-                    <div className="min-w-0 space-y-1">
+                    {/* 活動主體內容 */}
+                    <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${badgeStyle.badge}`}>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${badgeStyle.badge}`}>
                           {badgeStyle.label}
                         </span>
-                        <h4 className="text-sm font-bold truncate text-stone-900 dark:text-stone-100">
+                        <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100 truncate">
                           {ev.title}
                         </h4>
+                        {canMod && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-stone-100 dark:bg-slate-800 text-stone-500 dark:text-stone-400 flex items-center gap-1">
+                            <UserCheck size={10} />
+                            可編修
+                          </span>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-3 text-xs opacity-80 flex-wrap">
+                      <div className="flex items-center gap-3 text-xs text-stone-500 dark:text-stone-400 flex-wrap">
+                        <span className="flex items-center gap-1">
+                          <CalendarIcon size={12} />
+                          {dateInfo.weekday}
+                        </span>
                         {timeStr && (
                           <span className="flex items-center gap-1">
                             <Clock size={12} />
@@ -448,7 +601,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         </div>
       )}
 
-      {/* ── 活動詳情彈窗 ── */}
+      {/* ── 活動詳情與管理彈窗 (含編輯與刪除權限控制) ── */}
       <AnimatePresence>
         {selectedEvent && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
@@ -460,7 +613,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
             >
               <div className="flex justify-between items-start">
                 <div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${getCalendarBadge(selectedEvent.calendarType).badge}`}>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${getCalendarBadge(selectedEvent.calendarType).badge}`}>
                     {getCalendarBadge(selectedEvent.calendarType).label}
                   </span>
                   <h3 className="text-lg font-bold text-stone-900 dark:text-stone-100 mt-1">
@@ -477,39 +630,63 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
 
               <div className="space-y-2 text-xs text-stone-600 dark:text-stone-300 border-y border-stone-100 dark:border-slate-800/80 py-3">
                 <p className="flex items-center gap-2">
-                  <CalendarIcon size={14} className="text-stone-400" />
+                  <CalendarIcon size={14} className="text-stone-400 shrink-0" />
                   <span className="font-semibold">{formatEventDate(selectedEvent.start).full} ({formatEventDate(selectedEvent.start).weekday})</span>
                 </p>
                 <p className="flex items-center gap-2">
-                  <Clock size={14} className="text-stone-400" />
+                  <Clock size={14} className="text-stone-400 shrink-0" />
                   <span>{formatEventTime(selectedEvent)}</span>
                 </p>
                 {selectedEvent.location && (
                   <p className="flex items-center gap-2">
-                    <MapPin size={14} className="text-stone-400" />
+                    <MapPin size={14} className="text-stone-400 shrink-0" />
                     <span>{selectedEvent.location}</span>
                   </p>
                 )}
               </div>
 
               {selectedEvent.description && (
-                <div className="text-xs text-stone-700 dark:text-stone-300 bg-stone-50 dark:bg-slate-800/60 p-3 rounded-xl whitespace-pre-wrap leading-relaxed">
+                <div className="text-xs text-stone-700 dark:text-stone-300 bg-stone-50 dark:bg-slate-800/60 p-3 rounded-xl whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
                   {selectedEvent.description}
                 </div>
               )}
 
-              <button
-                onClick={() => setSelectedEvent(null)}
-                className="w-full py-2.5 rounded-xl text-xs font-bold bg-stone-100 dark:bg-slate-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200"
-              >
-                關閉
-              </button>
+              {/* 權限按鈕組：Role 0 超管全權限 / 建立者可編修 */}
+              <div className="pt-2 flex items-center gap-2">
+                {canModifyEvent(selectedEvent) ? (
+                  <>
+                    <button
+                      onClick={() => handleOpenEdit(selectedEvent)}
+                      disabled={isSubmitting}
+                      className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-900/60 flex items-center justify-center gap-1.5 border border-blue-200 dark:border-blue-800 transition"
+                    >
+                      <Edit2 size={13} />
+                      <span>編輯活動</span>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteEvent(selectedEvent.id, selectedEvent.calendarType)}
+                      disabled={isSubmitting}
+                      className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/50 dark:text-rose-300 dark:hover:bg-rose-900/60 flex items-center justify-center gap-1.5 border border-rose-200 dark:border-rose-800 transition"
+                    >
+                      <Trash2 size={13} />
+                      <span>{isSubmitting ? '刪除中...' : '刪除此活動'}</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setSelectedEvent(null)}
+                    className="w-full py-2.5 rounded-xl text-xs font-bold bg-stone-100 dark:bg-slate-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200"
+                  >
+                    關閉
+                  </button>
+                )}
+              </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* ── 新增活動滿版右側滑出抽屜 (Slide-over Drawer) ── */}
+      {/* ── 新增 / 編輯活動滿版右側滑出抽屜 (Slide-over Drawer) ── */}
       <AnimatePresence>
         {isDrawerOpen && (
           <div className="fixed inset-0 z-50 overflow-hidden">
@@ -538,8 +715,12 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                       <CalendarIcon size={18} />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-stone-900 dark:text-stone-100">新增校務行事活動</h3>
-                      <p className="text-[11px] text-stone-400 dark:text-stone-500">將即時寫入 Google 全校官方日曆</p>
+                      <h3 className="text-base font-bold text-stone-900 dark:text-stone-100">
+                        {editingEventId ? '編輯校務行事活動' : '新增校務行事活動'}
+                      </h3>
+                      <p className="text-[11px] text-stone-400 dark:text-stone-500">
+                        {editingEventId ? '修改將即時同步至 Google 官方日曆' : '將即時寫入 Google 全校官方日曆'}
+                      </p>
                     </div>
                   </div>
                   <button
@@ -604,39 +785,31 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                     <input
                       type="text"
                       required
+                      placeholder="例：全校行政晨會、期中學習評量、親職教育日"
                       value={formData.title}
-                      onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                      placeholder="例：第二次期中評量 / 文化走讀"
-                      className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-900 dark:text-stone-100 placeholder-stone-400 outline-none focus:ring-2 focus:ring-emerald-500"
+                      onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-stone-50/50 dark:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
 
-                  {/* 3. 日期選擇 */}
+                  {/* 3. 活動日期 */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
                         活動日期
                       </label>
-                      {/* 頂部快捷膠囊 */}
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setQuickDate('today')}
-                          className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200"
-                        >
-                          今天
-                        </button>
+                      <div className="flex items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => setQuickDate('tomorrow')}
-                          className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200"
+                          className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200"
                         >
-                          明天
+                          明日
                         </button>
                         <button
                           type="button"
                           onClick={() => setQuickDate('next_monday')}
-                          className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200"
+                          className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200"
                         >
                           下週一
                         </button>
@@ -646,211 +819,208 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                       type="date"
                       required
                       value={formData.date}
-                      onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
-                      className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-emerald-500"
+                      onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-stone-50/50 dark:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
 
-                  {/* 4. 時間模式（分段切換） */}
-                  <div className="space-y-2.5">
+                  {/* 4. 時間模式選擇 */}
+                  <div className="space-y-2">
                     <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
-                      時間模式
+                      時間排程模式
                     </label>
-                    <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-stone-100 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700">
+                    <div className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => setFormData(prev => ({ ...prev, timeMode: 'all_day' }))}
-                        className={`py-1.5 rounded-lg text-xs font-bold transition ${
+                        className={`py-2 rounded-xl text-xs font-bold border transition text-center ${
                           formData.timeMode === 'all_day'
-                            ? 'bg-white dark:bg-slate-900 text-stone-900 dark:text-stone-100 shadow-xs'
-                            : 'text-stone-600 dark:text-stone-400'
+                            ? 'bg-stone-900 text-white dark:bg-white dark:text-stone-900 shadow-xs'
+                            : 'bg-stone-50 dark:bg-slate-800 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-slate-700'
                         }`}
                       >
-                        整天 / 半日
+                        整天 / 半天
                       </button>
                       <button
                         type="button"
                         onClick={() => setFormData(prev => ({ ...prev, timeMode: 'periods' }))}
-                        className={`py-1.5 rounded-lg text-xs font-bold transition ${
+                        className={`py-2 rounded-xl text-xs font-bold border transition text-center ${
                           formData.timeMode === 'periods'
-                            ? 'bg-white dark:bg-slate-900 text-stone-900 dark:text-stone-100 shadow-xs'
-                            : 'text-stone-600 dark:text-stone-400'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                            : 'bg-stone-50 dark:bg-slate-800 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-slate-700'
                         }`}
                       >
-                        學校節次
+                        依作息節次
                       </button>
                       <button
                         type="button"
                         onClick={() => setFormData(prev => ({ ...prev, timeMode: 'custom' }))}
-                        className={`py-1.5 rounded-lg text-xs font-bold transition ${
+                        className={`py-2 rounded-xl text-xs font-bold border transition text-center ${
                           formData.timeMode === 'custom'
-                            ? 'bg-white dark:bg-slate-900 text-stone-900 dark:text-stone-100 shadow-xs'
-                            : 'text-stone-600 dark:text-stone-400'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-stone-50 dark:bg-slate-800 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-slate-700'
                         }`}
                       >
-                        自訂時間
+                        自訂時段
                       </button>
                     </div>
 
-                    {/* 整天模式選項 */}
+                    {/* 依不同時間模式展開子設定 */}
                     {formData.timeMode === 'all_day' && (
-                      <div className="grid grid-cols-3 gap-2 pt-1">
-                        {['full', 'morning', 'afternoon'].map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, allDayType: t }))}
-                            className={`py-2 rounded-xl text-xs font-medium border ${
-                              formData.allDayType === t
-                                ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-500 text-emerald-800 dark:text-emerald-300 font-bold'
-                                : 'bg-stone-50 dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-600 dark:text-stone-400'
-                            }`}
-                          >
-                            {t === 'full' ? '全日' : t === 'morning' ? '上午 (08:00-12:00)' : '下午 (13:00-16:00)'}
-                          </button>
-                        ))}
+                      <div className="p-3 rounded-xl bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 flex items-center justify-around text-xs">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="allDayType"
+                            checked={formData.allDayType === 'full'}
+                            onChange={() => setFormData(prev => ({ ...prev, allDayType: 'full' }))}
+                            className="text-emerald-600"
+                          />
+                          <span>全天</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="allDayType"
+                            checked={formData.allDayType === 'morning'}
+                            onChange={() => setFormData(prev => ({ ...prev, allDayType: 'morning' }))}
+                            className="text-emerald-600"
+                          />
+                          <span>上午半天</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="allDayType"
+                            checked={formData.allDayType === 'afternoon'}
+                            onChange={() => setFormData(prev => ({ ...prev, allDayType: 'afternoon' }))}
+                            className="text-emerald-600"
+                          />
+                          <span>下午半天</span>
+                        </label>
                       </div>
                     )}
 
-                    {/* 學校節次模式 */}
                     {formData.timeMode === 'periods' && (
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <div>
-                          <span className="block text-[10px] text-stone-400 mb-1">起始節次</span>
-                          <select
-                            value={formData.startPeriod}
-                            onChange={e => setFormData(prev => ({ ...prev, startPeriod: e.target.value }))}
-                            className="w-full px-3 py-2 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-900 dark:text-stone-100 outline-none"
-                          >
-                            {PERIODS.map(p => (
-                              <option key={p.id} value={p.id}>{p.name} ({p.start})</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <span className="block text-[10px] text-stone-400 mb-1">結束節次</span>
-                          <select
-                            value={formData.endPeriod}
-                            onChange={e => setFormData(prev => ({ ...prev, endPeriod: e.target.value }))}
-                            className="w-full px-3 py-2 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-900 dark:text-stone-100 outline-none"
-                          >
-                            {PERIODS.map(p => (
-                              <option key={p.id} value={p.id}>{p.name} ({p.end})</option>
-                            ))}
-                          </select>
+                      <div className="p-3.5 rounded-xl bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 space-y-3">
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <label className="text-[11px] text-stone-500 dark:text-stone-400 block mb-1">開始節次</label>
+                            <select
+                              value={formData.startPeriod}
+                              onChange={(e) => setFormData(prev => ({ ...prev, startPeriod: e.target.value }))}
+                              className="w-full p-2 rounded-lg border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
+                            >
+                              {PERIODS.map(p => (
+                                <option key={p.id} value={p.id}>{p.name} ({p.start})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-stone-500 dark:text-stone-400 block mb-1">結束節次</label>
+                            <select
+                              value={formData.endPeriod}
+                              onChange={(e) => setFormData(prev => ({ ...prev, endPeriod: e.target.value }))}
+                              className="w-full p-2 rounded-lg border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
+                            >
+                              {PERIODS.map(p => (
+                                <option key={p.id} value={p.id}>{p.name} ({p.end})</option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       </div>
                     )}
 
-                    {/* 自訂時間模式 */}
                     {formData.timeMode === 'custom' && (
-                      <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="p-3 rounded-xl bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 grid grid-cols-2 gap-3 text-xs">
                         <div>
-                          <span className="block text-[10px] text-stone-400 mb-1">開始時間</span>
+                          <label className="text-[11px] text-stone-500 dark:text-stone-400 block mb-1">開始時間</label>
                           <input
                             type="time"
                             value={formData.customStartTime}
-                            onChange={e => setFormData(prev => ({ ...prev, customStartTime: e.target.value }))}
-                            className="w-full px-3 py-2 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-900 dark:text-stone-100 outline-none"
+                            onChange={(e) => setFormData(prev => ({ ...prev, customStartTime: e.target.value }))}
+                            className="w-full p-2 rounded-lg border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
                           />
                         </div>
                         <div>
-                          <span className="block text-[10px] text-stone-400 mb-1">結束時間</span>
+                          <label className="text-[11px] text-stone-500 dark:text-stone-400 block mb-1">結束時間</label>
                           <input
                             type="time"
                             value={formData.customEndTime}
-                            onChange={e => setFormData(prev => ({ ...prev, customEndTime: e.target.value }))}
-                            className="w-full px-3 py-2 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-900 dark:text-stone-100 outline-none"
+                            onChange={(e) => setFormData(prev => ({ ...prev, customEndTime: e.target.value }))}
+                            className="w-full p-2 rounded-lg border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
                           />
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* 5. 地點選擇（校區快捷膠囊 + 輸入框） */}
-                  <div className="space-y-2">
+                  {/* 5. 地點選擇與快捷點選 */}
+                  <div className="space-y-1.5">
                     <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
                       活動地點
                     </label>
                     <input
                       type="text"
+                      placeholder="例：視聽教室、風雨球場、全校操場"
                       value={formData.location}
-                      onChange={e => setFormData(prev => ({ ...prev, location: e.target.value }))}
-                      placeholder="點擊下方快捷標籤或自行輸入"
-                      className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-900 dark:text-stone-100 placeholder-stone-400 outline-none focus:ring-2 focus:ring-emerald-500"
+                      onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-stone-50/50 dark:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                     />
 
-                    {/* 霧臺快捷標籤（綠色） */}
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold">霧臺校區場地：</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {WUTAI_LOCATIONS.map(loc => (
-                          <button
-                            key={loc}
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, location: `霧臺校區 ${loc}` }))}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100"
-                          >
-                            {loc}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* 勵古快捷標籤（紅色） */}
-                    <div className="space-y-1 pt-1">
-                      <span className="text-[10px] text-rose-700 dark:text-rose-400 font-bold">勵古百合分校場地：</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {LIGU_LOCATIONS.map(loc => (
-                          <button
-                            key={loc}
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, location: `勵古分校 ${loc}` }))}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800 hover:bg-rose-100"
-                          >
-                            {loc}
-                          </button>
-                        ))}
-                      </div>
+                    {/* 依校區提供推薦地點 */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {(formData.calendarType === 'ligu' ? LIGU_LOCATIONS : WUTAI_LOCATIONS).map((loc) => (
+                        <button
+                          key={loc}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, location: loc }))}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition ${
+                            formData.location === loc
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : 'bg-white dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-600 dark:text-stone-400 hover:bg-stone-50'
+                          }`}
+                        >
+                          {loc}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
-                  {/* 6. 對象班級（點陣按鈕） */}
+                  {/* 6. 對象班級點陣快速勾選 */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
                         對象班級
                       </label>
-                      <label className="flex items-center gap-1.5 text-xs text-stone-600 dark:text-stone-400 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.isAllClasses}
-                          onChange={e => setFormData(prev => ({
-                            ...prev,
-                            isAllClasses: e.target.checked,
-                            selectedClasses: e.target.checked ? [] : prev.selectedClasses
-                          }))}
-                          className="w-4 h-4 rounded-md text-emerald-600 focus:ring-emerald-500"
-                        />
-                        <span className="font-bold">全校所有班級</span>
-                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, isAllClasses: !prev.isAllClasses, selectedClasses: [] }))}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition ${
+                          formData.isAllClasses
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-slate-700'
+                        }`}
+                      >
+                        全校所有班級
+                      </button>
                     </div>
 
                     {!formData.isAllClasses && (
-                      <div className="p-3 rounded-xl border border-stone-200 dark:border-slate-800 bg-stone-50/50 dark:bg-slate-800/30 space-y-2">
-                        {/* 第一排：霧臺甲班（綠色） */}
+                      <div className="p-3 rounded-xl bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 space-y-2.5">
                         <div>
-                          <span className="text-[10px] text-emerald-600 font-bold block mb-1">霧臺校區：</span>
-                          <div className="grid grid-cols-6 gap-1">
+                          <span className="text-[10px] font-bold text-stone-400 block mb-1">霧臺國小本校</span>
+                          <div className="grid grid-cols-6 gap-1.5">
                             {WUTAI_CLASSES.map(cls => (
                               <button
                                 key={cls}
                                 type="button"
                                 onClick={() => toggleClass(cls)}
-                                className={`py-1.5 rounded-lg text-xs font-bold border transition ${
+                                className={`py-1.5 rounded-lg text-[11px] font-bold border transition text-center ${
                                   formData.selectedClasses.includes(cls)
                                     ? 'bg-emerald-600 text-white border-emerald-600'
-                                    : 'bg-white dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300'
+                                    : 'bg-white dark:bg-slate-900 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300'
                                 }`}
                               >
                                 {cls}
@@ -859,19 +1029,18 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                           </div>
                         </div>
 
-                        {/* 第二排：勵古乙班（紅色） */}
                         <div>
-                          <span className="text-[10px] text-rose-600 font-bold block mb-1">勵古百合：</span>
-                          <div className="grid grid-cols-6 gap-1">
+                          <span className="text-[10px] font-bold text-stone-400 block mb-1">勵古百合分校</span>
+                          <div className="grid grid-cols-6 gap-1.5">
                             {LIGU_CLASSES.map(cls => (
                               <button
                                 key={cls}
                                 type="button"
                                 onClick={() => toggleClass(cls)}
-                                className={`py-1.5 rounded-lg text-xs font-bold border transition ${
+                                className={`py-1.5 rounded-lg text-[11px] font-bold border transition text-center ${
                                   formData.selectedClasses.includes(cls)
                                     ? 'bg-rose-600 text-white border-rose-600'
-                                    : 'bg-white dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300'
+                                    : 'bg-white dark:bg-slate-900 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300'
                                 }`}
                               >
                                 {cls}
@@ -880,19 +1049,18 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                           </div>
                         </div>
 
-                        {/* 第三排：幼兒園 */}
                         <div>
-                          <span className="text-[10px] text-amber-600 font-bold block mb-1">幼兒園：</span>
-                          <div className="grid grid-cols-3 gap-1">
+                          <span className="text-[10px] font-bold text-stone-400 block mb-1">幼兒園</span>
+                          <div className="grid grid-cols-3 gap-1.5">
                             {KINDERGARTEN_CLASSES.map(cls => (
                               <button
                                 key={cls}
                                 type="button"
                                 onClick={() => toggleClass(cls)}
-                                className={`py-1.5 rounded-lg text-[11px] font-bold border transition ${
+                                className={`py-1.5 px-1 rounded-lg text-[10px] font-bold border transition text-center truncate ${
                                   formData.selectedClasses.includes(cls)
                                     ? 'bg-amber-600 text-white border-amber-600'
-                                    : 'bg-white dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300'
+                                    : 'bg-white dark:bg-slate-900 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300'
                                 }`}
                               >
                                 {cls}
@@ -904,58 +1072,51 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                     )}
                   </div>
 
-                  {/* 7. 承辦處室 */}
+                  {/* 7. 主辦處室 */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
                       承辦處室
                     </label>
-                    <div className="grid grid-cols-3 gap-1.5">
+                    <select
+                      value={formData.department}
+                      onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl text-xs font-bold border border-stone-200 dark:border-slate-700 bg-stone-50 dark:bg-slate-800"
+                    >
                       {DEPARTMENTS.map(dept => (
-                        <button
-                          key={dept}
-                          type="button"
-                          onClick={() => setFormData(prev => ({ ...prev, department: dept }))}
-                          className={`py-2 rounded-xl text-xs font-medium border ${
-                            formData.department === dept
-                              ? 'bg-stone-900 dark:bg-white text-white dark:text-stone-900 font-bold border-stone-900 dark:border-white'
-                              : 'bg-stone-50 dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-600 dark:text-stone-400'
-                          }`}
-                        >
-                          {dept}
-                        </button>
+                        <option key={dept} value={dept}>{dept}</option>
                       ))}
-                    </div>
+                    </select>
                   </div>
 
-                  {/* 8. 活動備註 */}
+                  {/* 8. 備註與詳細說明 */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
-                      活動備註（選填）
+                      備註與注意事項
                     </label>
                     <textarea
                       rows={3}
+                      placeholder="填寫活動詳細說明、裝備需求或相關流程..."
                       value={formData.notes}
-                      onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                      placeholder="請填寫攜帶器材、注意事項或補充說明..."
-                      className="w-full px-3.5 py-2 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-900 dark:text-stone-100 placeholder-stone-400 outline-none focus:ring-2 focus:ring-emerald-500"
+                      onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-stone-50/50 dark:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
 
-                  {/* 抽屜底部送出列 */}
-                  <div className="pt-2 sticky bottom-0 bg-white dark:bg-slate-900 pb-2">
+                  {/* 抽屜底層送出按鈕 */}
+                  <div className="pt-4 border-t border-stone-100 dark:border-slate-800">
                     <button
                       type="submit"
                       disabled={isSubmitting || submitSuccess}
-                      className={`w-full py-3 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 shadow-lg transition-all ${
+                      className={`w-full py-3 rounded-xl text-xs font-bold text-white transition-all flex items-center justify-center gap-2 shadow-lg ${
                         submitSuccess
-                          ? 'bg-emerald-600'
-                          : 'bg-emerald-600 hover:bg-emerald-700 active:scale-98 shadow-emerald-600/30'
+                          ? 'bg-emerald-700 shadow-emerald-700/25'
+                          : 'bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] shadow-emerald-600/25'
                       }`}
                     >
                       {submitSuccess ? (
                         <>
                           <Check size={16} />
-                          <span>新增成功，已同步至 Google 日曆！</span>
+                          <span>{editingEventId ? '更新成功！已同步至 Google 日曆' : '發布成功！已同步至 Google 日曆'}</span>
                         </>
                       ) : isSubmitting ? (
                         <>
@@ -965,7 +1126,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                       ) : (
                         <>
                           <Plus size={16} />
-                          <span>確認並發布至 Google 日曆</span>
+                          <span>{editingEventId ? '確認並儲存修改' : '確認並發布至 Google 日曆'}</span>
                         </>
                       )}
                     </button>

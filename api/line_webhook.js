@@ -248,6 +248,59 @@ async function callGroq(systemPrompt, userMessage, groqApiKey) {
   return { success: false, errors };
 }
 
+
+// ── Google 行事曆即時快取管線 (5 分鐘記憶體快取) ──
+let cachedCalendarData = null;
+let lastCalendarFetchTime = 0;
+
+async function getRecentCalendarEvents() {
+  const now = Date.now();
+  if (cachedCalendarData && (now - lastCalendarFetchTime < 5 * 60 * 1000)) {
+    return cachedCalendarData;
+  }
+  try {
+    const gasUrl = process.env.CALENDAR_GAS_URL || 'https://script.google.com/macros/s/AKfycbwqB0mHhuLrzUrpe2M7ngW4_97_sQ2VN_MukBetf8sesqG1sJXEX0BIQDxgfOe7L7P3/exec';
+    const targets = ['all', 'wutai', 'ligu'];
+    const fetches = targets.map(t => 
+      fetch(`${gasUrl}?type=${t}`, { signal: AbortSignal.timeout(3000) })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => (j && j.status === 'success' && Array.isArray(j.data)) ? j.data : [])
+        .catch(() => [])
+    );
+    const results = await Promise.all(fetches);
+    const eventMap = new Map();
+    results.flat().forEach(ev => {
+      if (ev && ev.id) eventMap.set(ev.id, ev);
+    });
+    const events = Array.from(eventMap.values());
+    events.sort((a, b) => new Date(a.start) - new Date(b.start));
+
+    if (events.length === 0) {
+      cachedCalendarData = '目前日曆中尚無已排定之特殊全校日程';
+      lastCalendarFetchTime = now;
+      return cachedCalendarData;
+    }
+
+    const formatted = events.slice(0, 30).map(ev => {
+      const d = new Date(ev.start);
+      const dateStr = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
+      const campusName = ev.calendarType === 'wutai' ? '霧臺校區' : (ev.calendarType === 'ligu' ? '勵古百合分校' : '全校共通');
+      const timeStr = ev.isAllDay ? '整天' : `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+      let line = `- 【${dateStr}】[${campusName}] ${ev.title} (${timeStr})`;
+      if (ev.location) line += ` 地點：${ev.location}`;
+      if (ev.description) line += ` 詳情：${ev.description.replace(/\n/g, ' ')}`;
+      return line;
+    }).join('\n');
+
+    cachedCalendarData = formatted;
+    lastCalendarFetchTime = now;
+    return formatted;
+  } catch (err) {
+    console.warn('Fetch calendar events failed:', err.message);
+    return cachedCalendarData || '日曆連線同步中';
+  }
+}
+
 // 雙引擎調度管線：Google Gemini 主力 + Groq 秒級無縫備援
 async function askSchoolAI(userMessage, { geminiApiKey, groqApiKey, forceEngine } = {}) {
   // 1. 檢索知識庫（預設官方課表規章 + Supabase 自訂上傳檔案）
@@ -279,6 +332,7 @@ async function askSchoolAI(userMessage, { geminiApiKey, groqApiKey, forceEngine 
 2. 資訊必須嚴謹準確，切勿自行編造不存在的課程、規範或任何資訊。
 3. 若問題超出已知規章或課表範圍，請委婉告知並引導其於上班時間致電霧臺國小洽詢對應處室。
 4. 【學校唯一官方聯絡電話】：若需要提供學校電話，唯一官方總機為「(08) 790-2230」。絕對嚴禁自行編造、揣測或拼湊任何其他電話號碼或分機號碼！
+5. 詢問學校行事曆、重要日程、活動、考試、晨會或放假時，請嚴格依據上述【全校近期官方行事曆排程】準確回答活動名稱、日期、所屬校區與相關備註。
 
 【學校官方校務規章與教師授課總課表資料】：
 ${knowledgeContext}`;
