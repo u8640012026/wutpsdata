@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Timeline from '../components/Timeline';
+import SchoolCalendar from '../components/SchoolCalendar';
 import { useApp } from '../App';
 import * as XLSX from 'xlsx';
 import liff from '@line/liff';
@@ -33,16 +33,10 @@ import {
   HardDrive
 } from 'lucide-react';
 
-const mockEvents = [
-  { date: '2023-11-01', title: '全校運動會 / Sports Day', description: '請全體師生準時於操場集合 / Gather at the field' },
-  { date: '2023-11-15', title: '期中考 / Midterm', description: '期中評量 / Midterm exams' },
-];
-
 export default function AdminDashboard() {
   const [currentView, setCurrentView] = useState('menu'); // 'menu', 'calendar', 'students', 'timetable', 'superadmin'
   const [superadminTab, setSuperadminTab] = useState('whitelist'); // 'whitelist', 'import', 'backup'
-  const [isEditing, setIsEditing] = useState(false);
-  const [events, setEvents] = useState(mockEvents);
+  const [isCalendarFullScreen, setIsCalendarFullScreen] = useState(false);
   const { isDark, t, staffData } = useApp();
   
   const [uploadStatus, setUploadStatus] = useState('');
@@ -253,46 +247,59 @@ export default function AdminDashboard() {
 
   // ── 行事曆檢視頁 ──
   if (currentView === 'calendar') {
+    if (isCalendarFullScreen) {
+      return (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-50 dark:bg-slate-950 p-4 sm:p-6 transition-all">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="flex justify-between items-center pb-3 border-b border-stone-200 dark:border-slate-800">
+              <button 
+                onClick={() => setIsCalendarFullScreen(false)}
+                className={`flex items-center text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-colors ${
+                  isDark ? 'bg-slate-800 text-stone-300 hover:bg-slate-700' : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
+                }`}
+              >
+                <ArrowLeft size={14} className="mr-1.5" />
+                返回標準檢視
+              </button>
+              <span className={`text-xs font-bold ${subTextColor}`}>
+                校務行事曆 · 全頁檢視模式
+              </span>
+            </div>
+            <SchoolCalendar 
+              isFullScreen={isCalendarFullScreen} 
+              onToggleFullScreen={() => setIsCalendarFullScreen(!isCalendarFullScreen)} 
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6 pb-8">
-        <div className="flex justify-between items-center">
-          <button 
-            onClick={() => setCurrentView('menu')}
-            className={`flex items-center font-bold px-3.5 py-2 rounded-xl shadow-sm transition-colors ${
-              isDark ? 'bg-slate-800 text-amber-400 hover:bg-slate-700' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
-            }`}
-          >
-            <ArrowLeft size={16} className="mr-1.5" />
-            {t.goBack}
-          </button>
-          
-          <button 
-            onClick={() => setIsEditing(!isEditing)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm ${
-              isEditing 
-                ? 'bg-stone-200 dark:bg-slate-800 text-stone-700 dark:text-stone-300' 
-                : 'bg-amber-600 hover:bg-amber-700 text-white'
-            }`}
-          >
-            {isEditing ? t.finishView : t.editMode}
-          </button>
+        <button 
+          onClick={() => setCurrentView('menu')}
+          className={`flex items-center font-bold px-3.5 py-2 rounded-xl shadow-sm transition-colors ${
+            isDark ? 'bg-slate-800 text-amber-400 hover:bg-slate-700' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+          }`}
+        >
+          <ArrowLeft size={16} className="mr-1.5" />
+          {t.goBack}
+        </button>
+
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className={`text-2xl font-black tracking-tight ${textColor}`}>校務行事曆</h2>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              Google 日曆即時連動
+            </span>
+          </div>
+          <p className={`text-sm mt-0.5 ${subTextColor}`}>屏東縣霧臺國小 · 支援全校共通、霧臺校區、勵古百合分校三向即時排程</p>
         </div>
 
-        <section className={`rounded-2xl shadow-sm p-5 border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-stone-200'}`}>
-          {isEditing && (
-            <div className={`mb-6 p-4 rounded-xl border border-dashed ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-amber-50/50 border-amber-200'}`}>
-              <h4 className={`text-sm font-bold mb-3 ${isDark ? 'text-stone-200' : 'text-stone-800'}`}>{t.addEvent}</h4>
-              <div className="space-y-3">
-                <input type="date" className={`w-full text-sm p-3 border rounded-xl outline-none focus:ring-2 focus:ring-amber-500 ${isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'}`} />
-                <input type="text" placeholder={t.eventTitle} className={`w-full text-sm p-3 border rounded-xl outline-none focus:ring-2 focus:ring-amber-500 ${isDark ? 'bg-slate-800 border-slate-700 text-stone-100 placeholder-stone-400' : 'bg-white border-stone-300 text-stone-900'}`} />
-                <button className={`w-full font-bold py-2.5 rounded-xl text-sm transition shadow-sm ${isDark ? 'bg-amber-700 hover:bg-amber-800 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'}`}>
-                  {t.addCalendar}
-                </button>
-              </div>
-            </div>
-          )}
-          <Timeline events={events} />
-        </section>
+        <SchoolCalendar 
+          isFullScreen={isCalendarFullScreen} 
+          onToggleFullScreen={() => setIsCalendarFullScreen(!isCalendarFullScreen)} 
+        />
       </div>
     );
   }
@@ -537,12 +544,12 @@ export default function AdminDashboard() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className={`text-lg font-extrabold ${isDark ? 'text-amber-200' : 'text-amber-950'}`}>{t.calendarTitle}</h3>
-                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-200/80 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60">
-                  開發樣本 - 尚未串接 Google 日曆
+                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  Google 日曆即時連動
                 </span>
               </div>
               <p className={`text-sm mt-1 leading-relaxed ${isDark ? 'text-amber-300/80' : 'text-amber-800/80'}`}>
-                {t.calendarDesc}，點擊即可瀏覽學校活動與行事排程
+                全校共通、霧臺校區與勵古百合分校行事排程，支援行政同仁線上快速新增
               </p>
             </div>
           </div>
