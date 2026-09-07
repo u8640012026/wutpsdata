@@ -1,11 +1,11 @@
-import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
+import React, { useState, useEffect, createContext, useContext, useRef, useCallback } from 'react';
 import LiffLogin from './components/LiffLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import ParentDashboard from './pages/ParentDashboard';
 import RepairDashboard from './pages/RepairDashboard';
 import { translations } from './i18n';
 import liff from '@line/liff';
-import { isSuperAdmin } from './lib/staffAccess';
+import { isSuperAdmin, canManageRepairs } from './lib/staffAccess';
 import { LayoutDashboard, Wrench, Sun, Moon, Languages, LogOut, User, ChevronDown } from 'lucide-react';
 
 export const AppContext = createContext();
@@ -96,10 +96,44 @@ function App() {
   };
 
   const [hideBottomNav, setHideBottomNav] = useState(false);
+  const [repairBadgeCount, setRepairBadgeCount] = useState(0);
+
+  const fetchRepairBadge = useCallback(async (uid, staff) => {
+    if (!uid) return;
+    try {
+      const res = await fetch('/api/repairs', { headers: { 'x-line-uid': uid } });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const isMgr = canManageRepairs(staff);
+        if (isMgr) {
+          const count = data.filter(r => r.status !== 'closed').length;
+          setRepairBadgeCount(count);
+        } else {
+          const count = data.filter(r => r.status === 'completed' && r.reporter_uid === uid).length;
+          setRepairBadgeCount(count);
+        }
+      }
+    } catch {
+      // 靜默容錯，不影響使用者介面
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      const uid = liffProfile?.userId || 'dev-admin';
+      fetchRepairBadge(uid, staffData);
+    }
+  }, [isLoggedIn, liffProfile, staffData, fetchRepairBadge]);
+
   const toggleTheme = () => setIsDark(!isDark);
   const toggleLang = () => setLang(lang === 'zh' ? 'en' : 'zh');
 
-  const contextValue = { lang, isDark, t, handleLogout, liffProfile, staffData, userRole, hideBottomNav, setHideBottomNav };
+  const contextValue = { 
+    lang, isDark, t, handleLogout, liffProfile, staffData, userRole, 
+    hideBottomNav, setHideBottomNav, 
+    repairBadgeCount, setRepairBadgeCount, fetchRepairBadge 
+  };
 
   return (
     <AppContext.Provider value={contextValue}>
@@ -223,7 +257,14 @@ function App() {
               onClick={() => setCurrentTab('repairs')}
               className={`flex flex-col items-center justify-center gap-1 w-full h-full transition-all active:scale-95 ${currentTab === 'repairs' ? 'text-emerald-700 dark:text-emerald-400' : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-400 hover:text-stone-600'}`}
             >
-              <Wrench size={22} strokeWidth={currentTab === 'repairs' ? 2.5 : 1.5} />
+              <div className="relative">
+                <Wrench size={22} strokeWidth={currentTab === 'repairs' ? 2.5 : 1.5} />
+                {repairBadgeCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs animate-pulse">
+                    {repairBadgeCount > 99 ? '99+' : repairBadgeCount}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] font-bold">修繕採購</span>
             </button>
           </nav>

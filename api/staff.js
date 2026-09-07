@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isSuperAdmin, isSchoolAdmin, canManageRepairs } from '../src/lib/staffAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -10,23 +11,26 @@ export default async function handler(req, res) {
   if (!line_uid) return res.status(401).json({ error: 'Unauthorized: Missing LINE UID' });
 
   try {
-    let isSuperAdmin = false;
+    let staffData = null;
+    let isSuper = false;
     if (line_uid === 'dev-admin') {
-      isSuperAdmin = true;
+      isSuper = true;
     } else {
-      const { data: adminData } = await supabase
+      const { data } = await supabase
         .from('staff')
         .select('*')
         .eq('line_uid', line_uid)
         .single();
-      isSuperAdmin = adminData && (adminData.role_tags?.includes('0') || adminData.email?.includes('u864001'));
-    }
-
-    if (!isSuperAdmin) {
-      return res.status(403).json({ error: 'Forbidden: 權限不足，僅限系統管理者(0)操作' });
+      staffData = data;
+      isSuper = isSuperAdmin(staffData);
     }
 
     if (req.method === 'GET') {
+      const canRead = isSuper || isSchoolAdmin(staffData) || canManageRepairs(staffData);
+      if (!canRead) {
+        return res.status(403).json({ error: 'Forbidden: 僅限行政與修繕管理人員檢視教職員名單' });
+      }
+
       const { data, error } = await supabase
         .from('staff')
         .select('*')
@@ -34,6 +38,10 @@ export default async function handler(req, res) {
 
       if (error) throw error;
       return res.status(200).json(data);
+    }
+
+    if (!isSuper) {
+      return res.status(403).json({ error: 'Forbidden: 權限不足，僅限系統管理者(0)操作' });
     }
     
     if (req.method === 'DELETE') {

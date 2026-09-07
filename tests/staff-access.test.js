@@ -144,10 +144,10 @@ test('unregistered identity cannot access repairs', async t => {
   assert.equal(result.status, 403);
 });
 
-test('only principal, director, general-affairs section chief and superadmin manage repairs', () => {
-  for (const role of ['0','1','2']) assert.equal(canManageRepairs({role_tags:role}),true);
-  assert.equal(canManageRepairs({role_tags:'3,4',department:'教務處'}),false);
-  assert.equal(canManageRepairs({role_tags:'3',department:'總務處'}),true);
+test('roles 0, 1, 2, 3, 40 and general affairs staff manage repairs', () => {
+  for (const role of ['0','1','2','3','40']) assert.equal(canManageRepairs({role_tags:role}),true);
+  assert.equal(canManageRepairs({role_tags:'4',department:'教務處'}),false);
+  assert.equal(canManageRepairs({role_tags:'40',department:'總務處'}),true);
 });
 
 test('reporter confirms completed repair and moves it to closed status', async t => {

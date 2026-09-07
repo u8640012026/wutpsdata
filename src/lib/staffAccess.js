@@ -22,8 +22,8 @@ export function homeroomClass(staff) {
 
 export function canManageRepairs(staff) {
   const tags = roleTags(staff);
-  return isSuperAdmin(staff) || tags.includes('1') || tags.includes('2') ||
-    (tags.includes('3') && String(staff?.department || '').includes('總務'));
+  return isSuperAdmin(staff) || ['1', '2', '3', '40'].some(tag => tags.includes(tag)) ||
+    String(staff?.department || '').includes('總務');
 }
 
 export function studentClass(student) {
