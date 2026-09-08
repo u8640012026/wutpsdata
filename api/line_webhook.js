@@ -148,14 +148,14 @@ async function callGemini(prompt, geminiApiKey) {
   }
 
   const candidateModels = [
+    'gemini-2.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
     'gemini-2.0-flash',
     'gemini-1.5-flash',
-    'gemini-1.5-flash-8b',
-    'gemini-2.5-flash',
     'gemini-flash-latest',
-    'gemini-flash-lite-latest',
-    'gemini-3.1-flash-lite-preview',
-    'gemini-3-flash-preview'
+    'gemini-flash-lite-latest'
   ];
 
   const errors = {};
@@ -353,6 +353,7 @@ async function getRecentCalendarEvents() {
 async function askSchoolAI(userMessage, { geminiApiKey, groqApiKey, forceEngine } = {}) {
   // 1. 檢索知識庫（預設官方課表規章 + Supabase 自訂上傳檔案）
   let knowledgeContext = DEFAULT_KNOWLEDGE_BASE;
+  let matchingDocs = [];
   try {
     const { data: brainDocs } = await supabase
       .from('brain_documents')
@@ -368,6 +369,18 @@ async function askSchoolAI(userMessage, { geminiApiKey, groqApiKey, forceEngine 
         })
         .join('\n\n');
       knowledgeContext += '\n\n' + extraKnowledge;
+
+      // 比對與使用者問題最相關的 PDF 文件（提供給 Groq 備援專用，避免超出 TPM）
+      const qTerms = userMessage.toLowerCase().replace(/[？?！!，,。.\s]/g, '');
+      matchingDocs = brainDocs.filter(d => {
+        const titleMatch = d.title && qTerms.split('').some((_, idx, arr) => idx < arr.length - 1 && d.title.includes(arr.slice(idx, idx + 2).join('')));
+        const textSnippet = (d.extracted_text || d.summary || '').slice(0, 1000);
+        const textMatch = qTerms.split('').some((_, idx, arr) => idx < arr.length - 1 && textSnippet.includes(arr.slice(idx, idx + 2).join('')));
+        return titleMatch || textMatch;
+      });
+      if (matchingDocs.length === 0) {
+        matchingDocs = brainDocs.slice(0, 2);
+      }
     }
   } catch (dbErr) {
     console.warn('DB query note:', dbErr.message);
@@ -424,13 +437,9 @@ ${userMessage}
     console.warn('Google Gemini 引擎暫時不可用，秒級啟動 Groq 備援：', geminiRes.errors);
   }
 
-  // 第二備援：無縫切換至 Groq (Llama 3.3 70B)
+  // 第二備援：無縫切換至 Groq (秒級備援)
   if (groqApiKey) {
-    let safeSystemPrompt = systemInstructions;
-    if (safeSystemPrompt.length > 5500) {
-      safeSystemPrompt = safeSystemPrompt.slice(0, 5500) + '\n(Groq 備援模式：部分文件已精簡)';
-    }
-    const groqRes = await callGroq(safeSystemPrompt, userMessage, groqApiKey);
+    const groqRes = await callGroq(systemInstructions, userMessage, groqApiKey);
     if (groqRes.success) {
       return { reply: groqRes.reply, usedModel: groqRes.model, provider: 'Groq Cloud (自動備援)', error: '' };
     }
