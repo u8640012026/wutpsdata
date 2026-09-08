@@ -148,8 +148,12 @@ async function callGemini(prompt, geminiApiKey) {
   }
 
   const candidateModels = [
-    'gemini-flash-lite-latest',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-8b',
+    'gemini-2.5-flash',
     'gemini-flash-latest',
+    'gemini-flash-lite-latest',
     'gemini-3.1-flash-lite-preview',
     'gemini-3-flash-preview'
   ];
@@ -409,18 +413,24 @@ ${userMessage}
     return { reply: '', usedModel: '', provider: 'Groq Cloud', error: JSON.stringify(groqRes.errors || groqRes.error) };
   }
 
+  let geminiErrors = null;
   // 第一主力：嘗試 Google Gemini
   if (geminiApiKey) {
     const geminiRes = await callGemini(geminiPrompt, geminiApiKey);
     if (geminiRes.success) {
       return { reply: geminiRes.reply, usedModel: geminiRes.model, provider: 'Google Gemini (主力)', error: '' };
     }
+    geminiErrors = geminiRes.errors;
     console.warn('Google Gemini 引擎暫時不可用，秒級啟動 Groq 備援：', geminiRes.errors);
   }
 
   // 第二備援：無縫切換至 Groq (Llama 3.3 70B)
   if (groqApiKey) {
-    const groqRes = await callGroq(systemInstructions, userMessage, groqApiKey);
+    let safeSystemPrompt = systemInstructions;
+    if (safeSystemPrompt.length > 12000) {
+      safeSystemPrompt = safeSystemPrompt.slice(0, 12000) + '\n(Groq 備援模式：部分上傳文件已精簡)';
+    }
+    const groqRes = await callGroq(safeSystemPrompt, userMessage, groqApiKey);
     if (groqRes.success) {
       return { reply: groqRes.reply, usedModel: groqRes.model, provider: 'Groq Cloud (自動備援)', error: '' };
     }
@@ -429,7 +439,7 @@ ${userMessage}
       reply: '',
       usedModel: '',
       provider: '雙引擎皆不可用',
-      error: `Gemini & Groq 連線異常: ${JSON.stringify(groqRes.errors || groqRes.error)}`
+      error: `Gemini: ${JSON.stringify(geminiErrors || {})}; Groq: ${JSON.stringify(groqRes.errors || groqRes.error)}`
     };
   }
 
@@ -516,6 +526,7 @@ export default async function handler(req, res) {
         availableGroqModels,
         groqError,
         availableGeminiModelsCount: availableGeminiModels.length,
+        availableGeminiModels: availableGeminiModels.map(m => m.name).slice(0, 20),
         modelsError,
         hasLineToken: !!channelAccessToken,
         hasLineSecret: !!channelSecret
