@@ -148,14 +148,13 @@ async function callGemini(prompt, geminiApiKey) {
   }
 
   const candidateModels = [
-    'gemini-2.5-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-pro-preview',
     'gemini-3.1-flash-lite',
-    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
     'gemini-2.5-pro',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-flash-latest',
-    'gemini-flash-lite-latest'
+    'gemini-flash-latest'
   ];
 
   const errors = {};
@@ -368,7 +367,7 @@ async function askSchoolAI(userMessage, { geminiApiKey, groqApiKey, forceEngine 
           return `【官方校務上傳文件：${d.title}】\n${fullText}`;
         })
         .join('\n\n');
-      knowledgeContext += '\n\n' + extraKnowledge;
+      knowledgeContext = extraKnowledge + '\n\n' + DEFAULT_KNOWLEDGE_BASE;
 
       // 比對與使用者問題最相關的 PDF 文件（提供給 Groq 備援專用，避免超出 TPM）
       const qTerms = userMessage.toLowerCase().replace(/[？?！!，,。.\s]/g, '');
@@ -439,7 +438,11 @@ ${userMessage}
 
   // 第二備援：無縫切換至 Groq (秒級備援)
   if (groqApiKey) {
-    const groqRes = await callGroq(systemInstructions, userMessage, groqApiKey);
+    let groqSystemPrompt = systemInstructions;
+    if (groqSystemPrompt.length > 4800) {
+      groqSystemPrompt = groqSystemPrompt.slice(0, 4800);
+    }
+    const groqRes = await callGroq(groqSystemPrompt, userMessage, groqApiKey);
     if (groqRes.success) {
       return { reply: groqRes.reply, usedModel: groqRes.model, provider: 'Groq Cloud (自動備援)', error: '' };
     }
