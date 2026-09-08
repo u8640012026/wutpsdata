@@ -189,7 +189,7 @@ async function callGemini(prompt, geminiApiKey) {
         errors[model] = 'empty reply text';
       } else {
         const errBody = await geminiRes.text();
-        errors[model] = `${geminiRes.status}: ${errBody.slice(0, 150)}`;
+        errors[model] = `${geminiRes.status}: ${errBody.slice(0, 500)}`;
       }
     } catch (fetchErr) {
       errors[model] = `fetch_error: ${fetchErr.message}`;
@@ -199,18 +199,18 @@ async function callGemini(prompt, geminiApiKey) {
   return { success: false, errors };
 }
 
-// 核心呼叫 Groq Cloud (Llama 3.3 70B / Llama 3.1 8B 秒級備援)
+// 核心呼叫 Groq Cloud (秒級備援)
 async function callGroq(systemPrompt, userMessage, groqApiKey) {
   if (!groqApiKey) {
     return { success: false, error: 'GROQ_API_KEY 未設定' };
   }
 
   const candidateModels = [
+    'openai/gpt-oss-20b',
     'qwen/qwen3.8-27b',
     'qwen/qwen3.6-27b',
-    'openai/gpt-oss-120b',
-    'groq/compound',
-    'openai/gpt-oss-20b'
+    'groq/compound-mini',
+    'allam-2-7b'
   ];
 
   const errors = {};
@@ -229,7 +229,7 @@ async function callGroq(systemPrompt, userMessage, groqApiKey) {
             { role: 'user', content: userMessage }
           ],
           temperature: 0.2,
-          max_tokens: 2000
+          max_tokens: 800
         })
       });
 
@@ -427,8 +427,8 @@ ${userMessage}
   // 第二備援：無縫切換至 Groq (Llama 3.3 70B)
   if (groqApiKey) {
     let safeSystemPrompt = systemInstructions;
-    if (safeSystemPrompt.length > 12000) {
-      safeSystemPrompt = safeSystemPrompt.slice(0, 12000) + '\n(Groq 備援模式：部分上傳文件已精簡)';
+    if (safeSystemPrompt.length > 5500) {
+      safeSystemPrompt = safeSystemPrompt.slice(0, 5500) + '\n(Groq 備援模式：部分文件已精簡)';
     }
     const groqRes = await callGroq(safeSystemPrompt, userMessage, groqApiKey);
     if (groqRes.success) {
