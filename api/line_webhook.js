@@ -179,7 +179,8 @@ async function callGemini(prompt, geminiApiKey) {
       if (geminiRes.ok) {
         const geminiData = await geminiRes.json();
         const parts = geminiData.candidates?.[0]?.content?.parts || [];
-        const text = parts.map(p => p.text || '').join('').trim();
+        let text = parts.map(p => p.text || '').join('').trim();
+        text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
         if (text) {
           return { success: true, reply: text, model: `Gemini (${model})` };
         }
@@ -203,10 +204,10 @@ async function callGroq(systemPrompt, userMessage, groqApiKey) {
   }
 
   const candidateModels = [
-    'openai/gpt-oss-120b',
     'qwen/qwen3.8-27b',
     'qwen/qwen3.6-27b',
     'openai/gpt-oss-20b',
+    'openai/gpt-oss-120b',
     'groq/compound-mini',
     'allam-2-7b'
   ];
@@ -227,13 +228,14 @@ async function callGroq(systemPrompt, userMessage, groqApiKey) {
             { role: 'user', content: userMessage }
           ],
           temperature: 0.2,
-          max_tokens: 800
+          max_tokens: 1500
         })
       });
 
       if (groqRes.ok) {
         const groqData = await groqRes.json();
-        const text = groqData.choices?.[0]?.message?.content?.trim() || '';
+        let text = groqData.choices?.[0]?.message?.content?.trim() || '';
+        text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
         if (text) {
           return { success: true, reply: text, model: `Groq (${model})` };
         }
