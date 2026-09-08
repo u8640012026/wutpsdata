@@ -18,7 +18,7 @@ async function fixture(t, options = {}) {
   globalThis.fetch = async (url, init = {}) => {
     const address = new URL(String(url));
     requests.push({ address, body: init.body ? JSON.parse(init.body) : null });
-    if (address.hostname === 'database.test') return json([]);
+    if (address.hostname === 'database.test') return json(options.brainDocs ?? []);
     if (address.hostname === 'calendar.test') {
       assert.equal(address.searchParams.get('existing'), '1');
       const type = address.searchParams.get('type');
@@ -135,4 +135,20 @@ test('events after first 30 and repeated event IDs on other dates are retained',
   await f.ask();
   assert.match(f.geminiPrompt(), /35 筆/);
   assert.match(f.geminiPrompt(), /活動34/);
+});
+
+test('Gemini and Groq inject full extracted text from brain_documents instead of truncated summary', async t => {
+  const f = await fixture(t, {
+    brainDocs: [
+      {
+        title: '游泳課規範.pdf',
+        extracted_text: '【第 1 頁】\n游泳課第一條：請攜帶泳帽泳鏡。\n\n【第 5 頁】\n游泳課第五條：水深達 120 公分，須有合格教練隨行。',
+        summary: '游泳課第一條：請攜帶泳帽...'
+      }
+    ]
+  });
+  await f.ask();
+  const prompt = f.geminiPrompt();
+  assert.match(prompt, /官方校務上傳文件：游泳課規範\.pdf/);
+  assert.match(prompt, /水深達 120 公分，須有合格教練隨行/);
 });

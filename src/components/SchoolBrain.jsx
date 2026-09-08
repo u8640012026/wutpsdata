@@ -164,7 +164,7 @@ export default function SchoolBrain() {
           disableStream: true
         }).promise;
 
-        const maxPages = Math.min(pdfDoc.numPages, 10);
+        const maxPages = Math.min(pdfDoc.numPages, 100);
         for (let i = 1; i <= maxPages; i++) {
           const page = await pdfDoc.getPage(i);
           const textContent = await page.getTextContent();

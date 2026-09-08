@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import SchoolCalendar from '../components/SchoolCalendar';
 import { useApp } from '../App';
 import { isSchoolAdmin, homeroomClass, roleTags } from '../lib/staffAccess';
+import { markAllMentionsAsRead, isMentioned } from '../lib/mentionHelper';
 import * as XLSX from 'xlsx';
 import liff from '@line/liff';
 import StaffList from '../components/StaffList';
@@ -15,13 +16,48 @@ export default function AdminDashboard() {
   const [currentView, setCurrentView] = useState('menu'); // 'menu', 'calendar', 'students', 'timetable', 'superadmin'
   const [superadminTab, setSuperadminTab] = useState('whitelist'); // 'whitelist', 'import', 'backup'
   const [isCalendarFullScreen, setIsCalendarFullScreen] = useState(false);
-  const { isDark, t, staffData, setHideBottomNav } = useApp();
+  const { isDark, t, staffData, liffProfile, setHideBottomNav, adminBadgeCount, setAdminBadgeCount } = useApp();
 
   // 進入第二層子頁面時自動隱藏底部導覽列，放大手機可視範圍並防遮擋
   React.useEffect(() => {
     setHideBottomNav?.(currentView !== 'menu');
     return () => setHideBottomNav?.(false);
   }, [currentView, setHideBottomNav]);
+
+  const currentUserName = staffData?.name || liffProfile?.displayName || '';
+
+  const handleClearAllMentions = async () => {
+    if (!currentUserName || currentUserName === '未知使用者') return;
+    try {
+      const keysToMark = [];
+      const annRes = await fetch('/api/announcements?archived=false');
+      if (annRes.ok) {
+        const anns = await annRes.json();
+        if (Array.isArray(anns)) {
+          anns.forEach(a => {
+            if (isMentioned(`${a.title} ${a.content || ''}`, currentUserName)) {
+              keysToMark.push(`announcement:${a.id}`);
+            }
+          });
+        }
+      }
+      const calRes = await fetch('/api/calendar?type=all');
+      if (calRes.ok) {
+        const calData = await calRes.json();
+        if (calData.status === 'success' && Array.isArray(calData.data)) {
+          calData.data.forEach(ev => {
+            if (isMentioned(`${ev.title} ${ev.description || ''}`, currentUserName)) {
+              keysToMark.push(`calendar:${ev.id}`);
+            }
+          });
+        }
+      }
+      markAllMentionsAsRead(keysToMark);
+      setAdminBadgeCount?.(0);
+    } catch (e) {
+      console.warn('handleClearAllMentions error', e);
+    }
+  };
   
   const [uploadStatus, setUploadStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -498,6 +534,32 @@ export default function AdminDashboard() {
         <h2 className={`text-2xl font-black tracking-tight ${textColor}`}>{isAdmin ? t.adminTitle : '教師校務專區'}</h2>
         <p className={`text-sm mt-0.5 ${subTextColor}`}>{isAdmin ? t.adminDesc : '查閱公告、行事曆與課表'}</p>
       </div>
+
+      {/* 提及提醒橫幅 (當有未讀提及時顯示) */}
+      {adminBadgeCount > 0 && (
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 shadow-xs flex items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <span className="flex h-3 w-3 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-600"></span>
+            </span>
+            <div>
+              <p className="text-sm font-black text-rose-950 dark:text-rose-200">
+                有 {adminBadgeCount} 則公告或行事曆活動提及您
+              </p>
+              <p className="text-xs text-rose-700 dark:text-rose-300/80">
+                請點閱下方標記為「提及您 (未讀)」之項目以確認校務排程
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleClearAllMentions}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 hover:bg-rose-100/50 transition shrink-0 active:scale-95"
+          >
+            全部標記已讀
+          </button>
+        </div>
+      )}
 
       {/* 區塊 1：公告專區 (綠色系) */}
       <section className={`rounded-2xl p-4 sm:p-5 border transition-all shadow-sm ${

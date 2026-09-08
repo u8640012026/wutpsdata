@@ -14,10 +14,12 @@ import {
   AlertCircle,
   Edit2,
   Trash2,
-  UserCheck
+  UserCheck,
+  AtSign
 } from 'lucide-react';
 import { useApp } from '../App';
 import { roleTags as getRoleTags } from '../lib/staffAccess';
+import { isMentioned, getReadMentions, markMentionAsRead, renderContentWithLinksAndMentions } from '../lib/mentionHelper';
 
 // SWR 前端記憶體快取（保證切換頁面 0 毫秒極速秒開）
 const calendarMemoryCache = {
@@ -58,7 +60,7 @@ const KINDERGARTEN_CLASSES = ['小陶壺 (霧臺)', '小百合 (勵古)', '小�
 const DEPARTMENTS = ['教務處', '學務處', '總務處', '輔導室', '幼兒園', '校長室'];
 
 export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
-  const { staffData } = useApp();
+  const { staffData, isDark } = useApp();
   
   // 權限判斷：Role 0(超管), 1(校長), 2(主任), 3(組長) 具備新增權限
   const roleTags = getRoleTags(staffData);
@@ -67,6 +69,25 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
   const currentUid = staffData?.line_uid || '';
   const currentUserName = staffData?.name || '';
   
+  // 提及與已讀狀態
+  const [readSet, setReadSet] = useState(() => getReadMentions());
+  const [staffList, setStaffList] = useState([]);
+
+  useEffect(() => {
+    const syncRead = () => setReadSet(getReadMentions());
+    window.addEventListener('wutps-mention-read', syncRead);
+    return () => window.removeEventListener('wutps-mention-read', syncRead);
+  }, []);
+
+  useEffect(() => {
+    if (canManage && currentUid) {
+      fetch('/api/staff', { headers: { 'x-line-uid': currentUid } })
+        .then(r => r.ok ? r.json() : [])
+        .then(data => { if (Array.isArray(data)) setStaffList(data); })
+        .catch(() => {});
+    }
+  }, [canManage, currentUid]);
+
   // 狀態管理（優先讀取記憶體快取，實現 0 毫秒極速切換）
   const [filterType, setFilterType] = useState('all'); // all, wutai, ligu
   const [events, setEvents] = useState(() => calendarMemoryCache['all'] || []);
@@ -537,12 +558,20 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
             const dateInfo = formatEventDate(ev.start);
             const timeStr = formatEventTime(ev);
             const canMod = canModifyEvent(ev);
+            const mentionKey = `calendar:${ev.id}`;
+            const isMeMentioned = isMentioned(`${ev.title} ${ev.description || ''}`, currentUserName);
+            const isUnread = isMeMentioned && !readSet.has(mentionKey);
 
             return (
               <motion.div
                 key={ev.id}
                 layout
-                onClick={() => setSelectedEvent(ev)}
+                onClick={() => {
+                  setSelectedEvent(ev);
+                  if (isMeMentioned && !readSet.has(mentionKey)) {
+                    markMentionAsRead(mentionKey);
+                  }
+                }}
                 className={`p-4 rounded-2xl border bg-white dark:bg-slate-900 shadow-xs hover:shadow-md transition-all cursor-pointer border-l-4 ${badgeStyle.border} border-stone-200 dark:border-slate-800 active:scale-[0.99]`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -562,6 +591,15 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                         <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100 truncate">
                           {ev.title}
                         </h4>
+                        {isMeMentioned && (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                            isUnread
+                              ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800 animate-pulse'
+                              : 'bg-stone-100 text-stone-500 border-stone-200 dark:bg-slate-800 dark:text-stone-400 dark:border-slate-700'
+                          }`}>
+                            {isUnread ? '提及您 (未讀)' : '提及您 (已讀)'}
+                          </span>
+                        )}
                         {canMod && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-stone-100 dark:bg-slate-800 text-stone-500 dark:text-stone-400 flex items-center gap-1">
                             <UserCheck size={10} />
@@ -645,7 +683,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
 
               {selectedEvent.description && (
                 <div className="text-xs text-stone-700 dark:text-stone-300 bg-stone-50 dark:bg-slate-800/60 p-3 rounded-xl whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
-                  {selectedEvent.description}
+                  {renderContentWithLinksAndMentions(selectedEvent.description, currentUserName, isDark)}
                 </div>
               )}
 
@@ -1095,11 +1133,29 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
                     </label>
                     <textarea
                       rows={3}
-                      placeholder="填寫活動詳細說明、裝備需求或相關流程..."
+                      placeholder="填寫活動詳細說明、裝備需求或相關流程 (可使用 @姓名 標記相關同仁)..."
                       value={formData.notes}
                       onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                       className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-stone-200 dark:border-slate-700 bg-stone-50/50 dark:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                     />
+                    {staffList.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span className="text-[11px] font-bold text-stone-500 flex items-center gap-1">
+                          <AtSign size={12} className="text-emerald-600" />
+                          標記同仁：
+                        </span>
+                        {staffList.slice(0, 6).map(s => (
+                          <button
+                            key={s.id || s.name}
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, notes: prev.notes + (prev.notes.endsWith(' ') || !prev.notes ? '' : ' ') + `@${s.name} ` }))}
+                            className="text-[11px] px-2 py-0.5 rounded-md border font-semibold bg-white dark:bg-slate-900 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300 hover:bg-emerald-50 hover:text-emerald-800 transition active:scale-95"
+                          >
+                            @{s.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   </div>
 

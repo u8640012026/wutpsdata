@@ -6,6 +6,7 @@ import RepairDashboard from './pages/RepairDashboard';
 import { translations } from './i18n';
 import liff from '@line/liff';
 import { isSuperAdmin, canManageRepairs } from './lib/staffAccess';
+import { getReadMentions, isMentioned } from './lib/mentionHelper';
 import { LayoutDashboard, Wrench, Sun, Moon, Languages, LogOut, User, ChevronDown } from 'lucide-react';
 
 export const AppContext = createContext();
@@ -97,6 +98,7 @@ function App() {
 
   const [hideBottomNav, setHideBottomNav] = useState(false);
   const [repairBadgeCount, setRepairBadgeCount] = useState(0);
+  const [adminBadgeCount, setAdminBadgeCount] = useState(0);
 
   const fetchRepairBadge = useCallback(async (uid, staff) => {
     if (!uid) return;
@@ -119,12 +121,66 @@ function App() {
     }
   }, []);
 
+  const fetchAdminBadge = useCallback(async (userName) => {
+    if (!userName || userName === '未知使用者') {
+      setAdminBadgeCount(0);
+      return;
+    }
+    try {
+      const readSet = getReadMentions();
+      let unread = 0;
+
+      // 1. 公告提及檢查
+      const annRes = await fetch('/api/announcements?archived=false');
+      if (annRes.ok) {
+        const anns = await annRes.json();
+        if (Array.isArray(anns)) {
+          anns.forEach(a => {
+            const key = `announcement:${a.id}`;
+            if (isMentioned(`${a.title} ${a.content || ''}`, userName) && !readSet.has(key)) {
+              unread++;
+            }
+          });
+        }
+      }
+
+      // 2. 行事曆活動提及檢查
+      const calRes = await fetch('/api/calendar?type=all');
+      if (calRes.ok) {
+        const calData = await calRes.json();
+        if (calData.status === 'success' && Array.isArray(calData.data)) {
+          calData.data.forEach(ev => {
+            const key = `calendar:${ev.id}`;
+            if (isMentioned(`${ev.title} ${ev.description || ''}`, userName) && !readSet.has(key)) {
+              unread++;
+            }
+          });
+        }
+      }
+
+      setAdminBadgeCount(unread);
+    } catch {
+      // 靜默容錯
+    }
+  }, []);
+
   useEffect(() => {
     if (isLoggedIn) {
       const uid = liffProfile?.userId || 'dev-admin';
+      const userName = staffData?.name || liffProfile?.displayName;
       fetchRepairBadge(uid, staffData);
+      fetchAdminBadge(userName);
     }
-  }, [isLoggedIn, liffProfile, staffData, fetchRepairBadge]);
+  }, [isLoggedIn, liffProfile, staffData, fetchRepairBadge, fetchAdminBadge]);
+
+  useEffect(() => {
+    const handleMentionRead = () => {
+      const userName = staffData?.name || liffProfile?.displayName;
+      fetchAdminBadge(userName);
+    };
+    window.addEventListener('wutps-mention-read', handleMentionRead);
+    return () => window.removeEventListener('wutps-mention-read', handleMentionRead);
+  }, [staffData, liffProfile, fetchAdminBadge]);
 
   const toggleTheme = () => setIsDark(!isDark);
   const toggleLang = () => setLang(lang === 'zh' ? 'en' : 'zh');
@@ -132,7 +188,8 @@ function App() {
   const contextValue = { 
     lang, isDark, t, handleLogout, liffProfile, staffData, userRole, 
     hideBottomNav, setHideBottomNav, 
-    repairBadgeCount, setRepairBadgeCount, fetchRepairBadge 
+    repairBadgeCount, setRepairBadgeCount, fetchRepairBadge,
+    adminBadgeCount, setAdminBadgeCount, fetchAdminBadge
   };
 
   return (
@@ -249,7 +306,14 @@ function App() {
               onClick={() => setCurrentTab('home')}
               className={`flex flex-col items-center justify-center gap-1 w-full h-full transition-all active:scale-95 ${currentTab === 'home' ? 'text-emerald-700 dark:text-emerald-400' : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-400 hover:text-stone-600'}`}
             >
-              <LayoutDashboard size={22} strokeWidth={currentTab === 'home' ? 2.5 : 1.5} />
+              <div className="relative">
+                <LayoutDashboard size={22} strokeWidth={currentTab === 'home' ? 2.5 : 1.5} />
+                {adminBadgeCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs animate-pulse">
+                    {adminBadgeCount > 99 ? '99+' : adminBadgeCount}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] font-bold">校務行政</span>
             </button>
 

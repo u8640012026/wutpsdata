@@ -353,11 +353,15 @@ async function askSchoolAI(userMessage, { geminiApiKey, groqApiKey, forceEngine 
     const { data: brainDocs } = await supabase
       .from('brain_documents')
       .select('title, extracted_text, summary')
-      .limit(10);
+      .order('created_at', { ascending: false })
+      .limit(50);
     
     if (brainDocs && brainDocs.length > 0) {
       const extraKnowledge = brainDocs
-        .map(d => `【自訂上傳文件：${d.title}】\n${d.summary || d.extracted_text || ''}`)
+        .map(d => {
+          const fullText = (d.extracted_text && d.extracted_text.trim()) ? d.extracted_text.trim() : (d.summary || '');
+          return `【官方校務上傳文件：${d.title}】\n${fullText}`;
+        })
         .join('\n\n');
       knowledgeContext += '\n\n' + extraKnowledge;
     }

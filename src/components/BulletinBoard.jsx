@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
 import { roleTags as getRoleTags, isSuperAdmin } from '../lib/staffAccess';
-import { Plus, ChevronDown, Paperclip, Send, Download, FileText, MessageSquare, X, Archive } from 'lucide-react';
+import { isMentioned, getReadMentions, markMentionAsRead, renderContentWithLinksAndMentions } from '../lib/mentionHelper';
+import { Plus, ChevronDown, Paperclip, Send, Download, FileText, MessageSquare, X, Archive, AtSign } from 'lucide-react';
 
 export default function BulletinBoard() {
   const { isDark, staffData, liffProfile } = useApp();
@@ -23,6 +24,24 @@ export default function BulletinBoard() {
   const canPost = isSuperAdmin(staffData) || ['1', '2', '3'].some(r => roleTags.includes(r));
   const currentUserUid = liffProfile?.userId || 'dev-admin';
   const currentUserName = staffData?.name || liffProfile?.displayName || '未知使用者';
+
+  const [staffList, setStaffList] = useState([]);
+  const [readSet, setReadSet] = useState(() => getReadMentions());
+
+  useEffect(() => {
+    const syncRead = () => setReadSet(getReadMentions());
+    window.addEventListener('wutps-mention-read', syncRead);
+    return () => window.removeEventListener('wutps-mention-read', syncRead);
+  }, []);
+
+  useEffect(() => {
+    if (canPost && currentUserUid) {
+      fetch('/api/staff', { headers: { 'x-line-uid': currentUserUid } })
+        .then(r => r.ok ? r.json() : [])
+        .then(data => { if (Array.isArray(data)) setStaffList(data); })
+        .catch(() => {});
+    }
+  }, [canPost, currentUserUid]);
 
   useEffect(() => {
     fetchAnnouncements();
@@ -206,14 +225,56 @@ export default function BulletinBoard() {
             }`}
           />
           <textarea 
-            placeholder="公告內容 (可貼上超連結)" 
+            placeholder="公告內容 (可貼上超連結，或使用 @姓名 標記同仁)" 
             value={newContent}
             onChange={e => setNewContent(e.target.value)}
             rows={4}
-            className={`w-full p-2.5 mb-3 rounded-xl border text-sm leading-relaxed outline-none focus:ring-2 focus:ring-emerald-500 ${
+            className={`w-full p-2.5 mb-2 rounded-xl border text-sm leading-relaxed outline-none focus:ring-2 focus:ring-emerald-500 ${
               isDark ? 'bg-slate-800 border-slate-700 text-stone-100 placeholder-stone-400' : 'bg-stone-50 border-stone-300 text-stone-900'
             }`}
           />
+          
+          {/* 快速標記同仁 (@) */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-3">
+            <span className={`text-xs font-bold ${subTextColor} flex items-center gap-1`}>
+              <AtSign size={12} className="text-emerald-600 dark:text-emerald-400" />
+              標記同仁 (@)：
+            </span>
+            {staffList.slice(0, 8).map(s => (
+              <button
+                key={s.id || s.name}
+                type="button"
+                onClick={() => setNewContent(prev => prev + (prev.endsWith(' ') || !prev ? '' : ' ') + `@${s.name} `)}
+                className={`text-xs px-2 py-0.5 rounded-md border font-semibold transition active:scale-95 ${
+                  isDark
+                    ? 'bg-slate-800 border-slate-700 text-stone-300 hover:bg-slate-700 hover:text-emerald-300'
+                    : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-emerald-50 hover:text-emerald-800'
+                }`}
+              >
+                @{s.name}
+              </button>
+            ))}
+            {staffList.length > 8 && (
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setNewContent(prev => prev + (prev.endsWith(' ') || !prev ? '' : ' ') + `@${e.target.value} `);
+                    e.target.value = '';
+                  }
+                }}
+                className={`text-xs p-1 rounded-md border font-semibold outline-none ${
+                  isDark
+                    ? 'bg-slate-800 border-slate-700 text-stone-300'
+                    : 'bg-stone-100 border-stone-200 text-stone-700'
+                }`}
+              >
+                <option value="">更多同仁...</option>
+                {staffList.slice(8).map(s => (
+                  <option key={s.id || s.name} value={s.name}>@{s.name} ({s.title || s.department || ''})</option>
+                ))}
+              </select>
+            )}
+          </div>
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
             <div className="flex items-center gap-2">
@@ -302,6 +363,7 @@ export default function BulletinBoard() {
               ann={ann} 
               currentUserUid={currentUserUid} 
               currentUserName={currentUserName}
+              readSet={readSet}
               canArchive={canPost && activeTab === 'active' && (isSuperAdmin(staffData) || currentUserUid === ann.author_uid)}
               canEdit={canPost && (isSuperAdmin(staffData) || currentUserUid === ann.author_uid)}
               onEdit={() => { setEditingAnnouncement(ann); setNewTitle(ann.title); setNewContent(ann.content || ''); setAttachments(ann.attachments || []); setExpireDays('keep'); setIsComposing(true); }}
@@ -328,12 +390,16 @@ export default function BulletinBoard() {
   );
 }
 
-function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, onArchive, canEdit, onEdit }) {
+function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, onArchive, canEdit, onEdit, readSet }) {
   const { isDark } = useApp();
   const [expanded, setExpanded] = useState(false);
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
+
+  const mentionKey = `announcement:${ann.id}`;
+  const isMeMentioned = isMentioned(`${ann.title} ${ann.content || ''}`, currentUserName);
+  const isUnread = isMeMentioned && !readSet?.has(mentionKey);
 
   const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
   const subTextColor = isDark ? 'text-stone-300' : 'text-stone-600';
@@ -343,8 +409,13 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
   const toggleExpand = () => {
     const nextState = !expanded;
     setExpanded(nextState);
-    if (nextState && comments.length === 0) {
-      loadComments();
+    if (nextState) {
+      if (isMeMentioned && !readSet?.has(mentionKey)) {
+        markMentionAsRead(mentionKey);
+      }
+      if (comments.length === 0) {
+        loadComments();
+      }
     }
   };
 
@@ -410,8 +481,19 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
         className={`p-4 cursor-pointer transition-colors ${isDark ? 'hover:bg-slate-800/50' : 'hover:bg-emerald-50/40'} flex flex-col gap-2.5`}
       >
         <div className="flex justify-between items-start gap-2">
-          <h4 className={`font-extrabold text-base leading-snug ${textColor}`}>{ann.title}</h4>
-          <span className={`text-[11px] whitespace-nowrap px-2 py-0.5 rounded-full font-bold border ${
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <h4 className={`font-extrabold text-base leading-snug ${textColor}`}>{ann.title}</h4>
+            {isMeMentioned && (
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                isUnread
+                  ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800 animate-pulse'
+                  : 'bg-stone-100 text-stone-500 border-stone-200 dark:bg-slate-800 dark:text-stone-400 dark:border-slate-700'
+              }`}>
+                {isUnread ? '提及您 (未讀)' : '提及您 (已讀)'}
+              </span>
+            )}
+          </div>
+          <span className={`text-[11px] whitespace-nowrap px-2 py-0.5 rounded-full font-bold border shrink-0 ${
             isDark ? 'bg-slate-800 text-stone-300 border-slate-700' : 'bg-stone-100 text-stone-600 border-stone-200'
           }`}>
             {formatDate(ann.created_at)}
@@ -437,7 +519,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
         <div className={`border-t ${borderColor} animate-fade-in`}>
           {/* 內文 */}
           <div className={`p-4 text-sm leading-relaxed ${textColor}`}>
-            {renderContentWithLinks(ann.content)}
+            {renderContentWithLinksAndMentions(ann.content, currentUserName, isDark)}
           </div>
           
           {/* 附件下載區塊 */}
@@ -503,7 +585,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
                         <span className="font-bold text-emerald-600 dark:text-emerald-400">{c.author_name}</span>
                         <span className="text-[10px] text-stone-400">{formatDate(c.created_at)}</span>
                       </div>
-                      <p className="break-words">{c.content}</p>
+                      <p className="break-words">{renderContentWithLinksAndMentions(c.content, currentUserName, isDark)}</p>
                     </div>
                   </div>
                 ))}
