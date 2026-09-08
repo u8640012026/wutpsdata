@@ -35,9 +35,9 @@ async function fixture(t, options = {}) {
   };
   t.after(() => { globalThis.fetch = originalFetch; });
   const { default: handler } = await import(`../api/line_webhook.js?test=${++moduleId}`);
-  async function ask(engine) {
+  async function ask(engine, queryText = '9月8日有什麼活動？') {
     let result;
-    await handler({ method: 'GET', query: { q: '9月8日有什麼活動？', engine } }, {
+    await handler({ method: 'GET', query: { q: queryText, engine } }, {
       status(code) { assert.equal(code, 200); return this; },
       json(data) { result = data; }
     });
@@ -147,8 +147,38 @@ test('Gemini and Groq inject full extracted text from brain_documents instead of
       }
     ]
   });
-  await f.ask();
+  await f.ask(null, '游泳課水深幾公分');
   const prompt = f.geminiPrompt();
   assert.match(prompt, /官方校務上傳文件：游泳課規範\.pdf/);
   assert.match(prompt, /水深達 120 公分，須有合格教練隨行/);
+});
+
+test('two-stage router injects both Wutai and Ligu duty rosters and preserves multiple duty weeks', async t => {
+  const f = await fixture(t, {
+    brainDocs: [
+      {
+        title: '霧臺國小榮譽制度點數辦法.pdf',
+        extracted_text: '榮譽點數相關實施規定...',
+        summary: '榮譽點數規定'
+      },
+      {
+        title: '115-1霧臺校區導護暨值星安排.pdf',
+        extracted_text: '四 20~26 責任 陳克群 瑪發里\n十四 29~12/5 誠信 陳克群 顏皓權',
+        summary: '霧臺導護安排'
+      },
+      {
+        title: '115-1勵古校區導護暨值星安排.pdf',
+        extracted_text: '二 6~12 禮貌 簡淑慧 李家蓁\n四 20~26 責任 孫于琁 陳以晴',
+        summary: '勵古導護安排'
+      }
+    ]
+  });
+  await f.ask(null, '本週導護與克群老師時間');
+  const prompt = f.geminiPrompt();
+  assert.match(prompt, /115-1霧臺校區導護暨值星安排\.pdf/);
+  assert.match(prompt, /115-1勵古校區導護暨值星安排\.pdf/);
+  assert.match(prompt, /四 20~26 責任 陳克群/);
+  assert.match(prompt, /十四 29~12\/5 誠信 陳克群/);
+  assert.match(prompt, /雙校區導護暨值星特別守則/);
+  assert.match(prompt, /全域窮盡檢索守則/);
 });
