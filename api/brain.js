@@ -6,6 +6,10 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return res.status(500).json({ error: '伺服器未設定機密金鑰 (SERVICE_ROLE_KEY)' });
+  }
+
   const line_uid = req.headers['x-line-uid'] || 'dev-admin';
 
   try {
