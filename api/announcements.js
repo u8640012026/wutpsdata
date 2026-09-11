@@ -13,7 +13,31 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const { archived } = req.query;
+      const { archived, id } = req.query;
+
+      // 支援單一公告查詢 (供公開分享連結免登入查閱)
+      if (id) {
+        const { data, error } = await supabase
+          .from('announcements')
+          .select('id, title, content, author_name, expire_at, attachments, is_archived, created_at')
+          .eq('id', id)
+          .single();
+        if (error || !data) {
+          return res.status(404).json({ error: '查無此公告或已被刪除。' });
+        }
+        const safeAnnouncement = {
+          id: data.id,
+          title: data.title,
+          content: data.content,
+          author_name: data.author_name,
+          expire_at: data.expire_at,
+          attachments: data.attachments || [],
+          is_archived: data.is_archived,
+          created_at: data.created_at
+        };
+        return res.status(200).json(safeAnnouncement);
+      }
+
       const isArchived = archived === 'true';
       
       // 自動檢查並將過期公告下架 (只有在查詢活動公告時執行)

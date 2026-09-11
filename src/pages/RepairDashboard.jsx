@@ -20,6 +20,7 @@ import {
   Settings,
   Check
 } from 'lucide-react';
+import CopyPublicLinkButton from '../components/CopyPublicLinkButton';
 
 export function parseRepairCampus(location = '') {
   const loc = String(location || '');
@@ -513,6 +514,7 @@ export default function RepairDashboard() {
                         {campusInfo.label}
                       </span>
                       <h3 className={`font-extrabold text-base ${textColor}`}>{r.target}</h3>
+                      <CopyPublicLinkButton type="repair" id={r.id} isDark={isDark} />
                     </div>
                     <span className={`text-[11px] font-bold flex-shrink-0 ${subTextColor}`}>{new Date(r.created_at).toLocaleDateString()}</span>
                   </div>
@@ -742,6 +744,7 @@ export default function RepairDashboard() {
                   );
                 })()}
                 <h2 className={`text-xl font-black ${textColor}`}>{selectedRepair.target}</h2>
+                <CopyPublicLinkButton type="repair" id={selectedRepair.id} isDark={isDark} />
               </div>
               <button 
                 onClick={() => setView('list')} 

@@ -3,6 +3,7 @@ import LiffLogin from './components/LiffLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import ParentDashboard from './pages/ParentDashboard';
 import RepairDashboard from './pages/RepairDashboard';
+import PublicShareView from './components/PublicShareView';
 import { translations } from './i18n';
 import liff from '@line/liff';
 import { isSuperAdmin, canManageRepairs } from './lib/staffAccess';
@@ -27,6 +28,17 @@ function App() {
   const [liffProfile, setLiffProfile] = useState(null);
   const [isLiffInit, setIsLiffInit] = useState(false);
   const [isCheckingRole, setIsCheckingRole] = useState(true);
+  const [publicRoute] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const view = searchParams.get('view');
+      const id = searchParams.get('id');
+      if (view && id && ['announcement', 'repair'].includes(view)) {
+        return { view, id };
+      }
+    }
+    return null;
+  });
 
   const t = translations[lang];
 
@@ -191,6 +203,17 @@ function App() {
     repairBadgeCount, setRepairBadgeCount, fetchRepairBadge,
     adminBadgeCount, setAdminBadgeCount, fetchAdminBadge
   };
+
+  if (publicRoute) {
+    return (
+      <PublicShareView
+        view={publicRoute.view}
+        id={publicRoute.id}
+        isDark={isDark}
+        toggleTheme={toggleTheme}
+      />
+    );
+  }
 
   return (
     <AppContext.Provider value={contextValue}>

@@ -3,6 +3,7 @@ import { useApp } from '../App';
 import { roleTags as getRoleTags, isSuperAdmin } from '../lib/staffAccess';
 import { isMentioned, getReadMentions, markMentionAsRead, renderContentWithLinksAndMentions } from '../lib/mentionHelper';
 import { Plus, ChevronDown, Paperclip, Send, Download, FileText, MessageSquare, X, Archive, AtSign } from 'lucide-react';
+import CopyPublicLinkButton from './CopyPublicLinkButton';
 
 export default function BulletinBoard() {
   const { isDark, staffData, liffProfile } = useApp();
@@ -483,6 +484,7 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
         <div className="flex justify-between items-start gap-2">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             <h4 className={`font-extrabold text-base leading-snug ${textColor}`}>{ann.title}</h4>
+            <CopyPublicLinkButton type="announcement" id={ann.id} isDark={isDark} />
             {isMeMentioned && (
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
                 isUnread

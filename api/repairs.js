@@ -7,15 +7,48 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
-  const { method, body } = req;
-  const line_uid = req.headers['x-line-uid'];
-  
-  if (!line_uid) {
-    return res.status(401).json({ error: 'Unauthorized: Missing LINE UID' });
-  }
+  const { method, body, query } = req;
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(500).json({ error: '伺服器未設定機密金鑰 (SERVICE_ROLE_KEY)' });
+  }
+
+  // 1. 公開唯讀脫敏查詢 (支援免登入提供廠商或第三人查閱)
+  if (method === 'GET' && query?.public_id) {
+    try {
+      const { data, error } = await supabase
+        .from('repairs')
+        .select('*')
+        .eq('id', query.public_id)
+        .single();
+      
+      if (error || !data) {
+        return res.status(404).json({ error: '查無此報修或採購案件。' });
+      }
+
+      // 嚴格伺服器端資訊脫敏 (排除提報人個資、支出金錢金額、內部簽核歷程、承辦人資訊)
+      const safeData = {
+        id: data.id,
+        type: data.type,
+        target: data.target,
+        location: data.location,
+        description: data.description,
+        urgency: data.urgency,
+        status: data.status,
+        media_urls: data.media_urls || [],
+        created_at: data.created_at
+      };
+
+      return res.status(200).json(safeData);
+    } catch (err) {
+      console.error('Public repair query error:', err);
+      return res.status(500).json({ error: '公開案件讀取失敗。' });
+    }
+  }
+
+  const line_uid = req.headers['x-line-uid'];
+  if (!line_uid) {
+    return res.status(401).json({ error: 'Unauthorized: Missing LINE UID' });
   }
 
   try {
