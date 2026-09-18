@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
 import { roleTags as getRoleTags, isSuperAdmin } from '../lib/staffAccess';
+import { getAuthHeaders } from '../lib/authHeader';
 import { isMentioned, getReadMentions, markMentionAsRead, renderContentWithLinksAndMentions } from '../lib/mentionHelper';
 import { Plus, ChevronDown, Paperclip, Send, Download, FileText, MessageSquare, X, Archive, AtSign } from 'lucide-react';
 import CopyPublicLinkButton from './CopyPublicLinkButton';
@@ -37,7 +38,7 @@ export default function BulletinBoard() {
 
   useEffect(() => {
     if (canPost && currentUserUid) {
-      fetch('/api/staff', { headers: { 'x-line-uid': currentUserUid } })
+      fetch('/api/staff', { headers: getAuthHeaders(currentUserUid) })
         .then(r => r.ok ? r.json() : [])
         .then(data => { if (Array.isArray(data)) setStaffList(data); })
         .catch(() => {});
@@ -87,7 +88,10 @@ export default function BulletinBoard() {
       try {
         const res = await fetch('/api/upload', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders(currentUserUid)
+          },
           body: JSON.stringify({
             filename: safeFilename,
             contentType: file.type,
@@ -126,7 +130,10 @@ export default function BulletinBoard() {
     try {
       const res = await fetch('/api/announcements', {
         method: editingAnnouncement ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-line-uid': currentUserUid },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(currentUserUid)
+        },
         body: JSON.stringify({
           ...(editingAnnouncement ? { id: editingAnnouncement.id } : {}),
           title: newTitle,
@@ -157,7 +164,10 @@ export default function BulletinBoard() {
     try {
       await fetch('/api/announcements', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'x-line-uid': currentUserUid },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(currentUserUid)
+        },
         body: JSON.stringify({ id, is_archived: true })
       });
       fetchAnnouncements();
@@ -438,7 +448,10 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
     try {
       const res = await fetch('/api/announcement_comments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(currentUserUid)
+        },
         body: JSON.stringify({
           announcement_id: ann.id,
           author_uid: currentUserUid,

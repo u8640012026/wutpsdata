@@ -17,19 +17,21 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: '伺服器未設定機密金鑰 (SERVICE_ROLE_KEY)' });
   }
 
-  // 若前端提供了 LINE ID Token，進行官方防偽憑證校驗
-  if (id_token) {
-    const tokenResult = await verifyLineIdToken(id_token, line_uid);
-    if (!tokenResult.valid) {
-      return res.status(401).json({ role: null, error: tokenResult.error });
-    }
+  // 官方防偽憑證校驗：缺少 ID Token 一律拒絕授權
+  if (!id_token) {
+    return res.status(401).json({ role: null, error: '缺少 LINE ID Token 憑證，拒絕授權' });
   }
+  const tokenResult = await verifyLineIdToken(id_token, line_uid);
+  if (!tokenResult.valid) {
+    return res.status(401).json({ role: null, error: tokenResult.error });
+  }
+  const verifiedUid = tokenResult.payload.sub;
 
   try {
     const { data: staffData, error } = await supabase
       .from('staff')
       .select('*')
-      .eq('line_uid', line_uid)
+      .eq('line_uid', verifiedUid)
       .single();
 
     if (error || !staffData) {

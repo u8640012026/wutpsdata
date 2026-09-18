@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import SchoolCalendar from '../components/SchoolCalendar';
 import { useApp } from '../App';
 import { isSchoolAdmin, homeroomClass, roleTags } from '../lib/staffAccess';
+import { getAuthHeaders } from '../lib/authHeader';
 import { markAllMentionsAsRead, isMentioned } from '../lib/mentionHelper';
 import * as XLSX from 'xlsx';
 import liff from '@line/liff';
@@ -117,7 +118,10 @@ export default function AdminDashboard() {
 
         const response = await fetch('/api/students', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders(line_uid)
+          },
           body: JSON.stringify({
             line_uid,
             studentsData: formattedData
@@ -190,7 +194,7 @@ export default function AdminDashboard() {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'x-line-uid': line_uid
+            ...getAuthHeaders(line_uid)
           },
           body: JSON.stringify({
             line_uid,
@@ -228,11 +232,11 @@ export default function AdminDashboard() {
       }
 
       // 取得教職員
-      const staffRes = await fetch('/api/staff', { headers: { 'x-line-uid': uid } });
+      const staffRes = await fetch('/api/staff', { headers: getAuthHeaders(uid) });
       const staffList = staffRes.ok ? await staffRes.json() : [];
 
       // 取得學生
-      const stuRes = await fetch('/api/students', { headers: { 'x-line-uid': uid } });
+      const stuRes = await fetch('/api/students', { headers: getAuthHeaders(uid) });
       const stuList = stuRes.ok ? await stuRes.json() : [];
 
       const backupPackage = {

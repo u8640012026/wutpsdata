@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../App';
 import { School, GraduationCap, ArrowLeft, Maximize2, Minimize2 } from 'lucide-react';
 import { isSchoolAdmin, homeroomClass, studentClass } from '../lib/staffAccess';
+import { getAuthHeaders } from '../lib/authHeader';
 
 export default function StudentList() {
   const { isDark, staffData, liffProfile } = useApp();
@@ -28,7 +29,7 @@ export default function StudentList() {
       if (!lineUid) throw new Error('請先使用 LINE 登入。');
 
       const response = await fetch('/api/students', {
-        headers: { 'x-line-uid': lineUid }
+        headers: getAuthHeaders(lineUid)
       });
       const data = await response.json();
       

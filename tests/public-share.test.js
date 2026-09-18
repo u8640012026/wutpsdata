@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+process.env.NODE_ENV = 'test';
 process.env.VITE_SUPABASE_URL = 'https://database.test';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-only';
 

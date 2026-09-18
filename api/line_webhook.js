@@ -640,15 +640,24 @@ export default async function handler(req, res) {
 
   // LINE 簽名嚴格驗證
   const signature = req.headers?.['x-line-signature'];
-  if (channelSecret) {
+
+  // 在正式環境中，若未配置 LINE_CHANNEL_SECRET，直接中斷拒絕
+  if (!channelSecret) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(500).json({ error: 'Server misconfiguration: LINE_CHANNEL_SECRET is required' });
+    }
+  } else {
     if (!signature) {
       return res.status(403).json({ error: 'Forbidden: Missing LINE signature' });
     }
     try {
-      const bodyString = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      const rawPayload = req.rawBody 
+        ? (Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : req.rawBody)
+        : (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+
       const hash = crypto
         .createHmac('SHA256', channelSecret)
-        .update(bodyString)
+        .update(rawPayload)
         .digest('base64');
       
       if (hash !== signature) {

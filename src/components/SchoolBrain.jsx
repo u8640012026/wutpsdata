@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
 import { roleTags } from '../lib/staffAccess';
+import { getAuthHeaders } from '../lib/authHeader';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { BrainCircuit, FolderOpen, Upload, FileText, Trash2, Eye, CheckCircle2, Clock, Sparkles, ShieldAlert, School, BookOpen, Compass, Wrench, Users, Search, X } from 'lucide-react';
 
@@ -93,7 +94,10 @@ export default function SchoolBrain() {
 
   const fetchServerDocuments = async () => {
     try {
-      const res = await fetch('/api/brain');
+      const lineUid = liffProfile?.userId || staffData?.line_uid || '';
+      const res = await fetch('/api/brain', {
+        headers: getAuthHeaders(lineUid)
+      });
       if (res.ok) {
         const serverDocs = await res.json();
         if (Array.isArray(serverDocs) && serverDocs.length > 0) {
@@ -205,7 +209,7 @@ export default function SchoolBrain() {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'x-line-uid': lineUid
+          ...getAuthHeaders(lineUid)
         },
         body: JSON.stringify({
           dept_id: activeDept.id,
@@ -263,7 +267,7 @@ export default function SchoolBrain() {
           method: 'DELETE',
           headers: { 
             'Content-Type': 'application/json',
-            'x-line-uid': lineUid
+            ...getAuthHeaders(lineUid)
           },
           body: JSON.stringify({ id: docId })
         });

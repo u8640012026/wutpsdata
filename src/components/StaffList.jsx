@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../App';
+import { getAuthHeaders } from '../lib/authHeader';
 import { Check, X, ShieldCheck, UserPlus, Edit3, Trash2, Unlink, Search, Save } from 'lucide-react';
 
 const DEPARTMENTS = [
@@ -68,7 +69,7 @@ export default function StaffList() {
       }
 
       const response = await fetch('/api/staff', {
-        headers: { 'x-line-uid': uid }
+        headers: getAuthHeaders(uid)
       });
       const data = await response.json();
       
@@ -142,7 +143,7 @@ export default function StaffList() {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            'x-line-uid': currentUid
+            ...getAuthHeaders(currentUid)
           },
           body: JSON.stringify({
             id: editingStaff.id,
@@ -170,7 +171,7 @@ export default function StaffList() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-line-uid': currentUid
+            ...getAuthHeaders(currentUid)
           },
           body: JSON.stringify({
             name: formData.name.trim(),
@@ -204,7 +205,7 @@ export default function StaffList() {
         method: 'DELETE',
         headers: { 
           'Content-Type': 'application/json',
-          'x-line-uid': currentUid 
+          ...getAuthHeaders(currentUid)
         },
         body: JSON.stringify({ id })
       });
@@ -226,7 +227,7 @@ export default function StaffList() {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
-          'x-line-uid': currentUid 
+          ...getAuthHeaders(currentUid)
         },
         body: JSON.stringify({ id, updates: { line_uid: null } })
       });

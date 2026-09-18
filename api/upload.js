@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { authenticateApiRequest } from './line_auth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -12,6 +13,23 @@ export default async function handler(req, res) {
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // 1. 強制身分與 ID Token 防偽查驗
+  const auth = await authenticateApiRequest(req);
+  if (!auth.valid) {
+    return res.status(401).json({ error: auth.error });
+  }
+
+  // 2. 查驗是否為已建檔之教職員
+  const { data: staffData } = await supabase
+    .from('staff')
+    .select('id, name')
+    .eq('line_uid', auth.uid)
+    .maybeSingle();
+
+  if (!staffData) {
+    return res.status(403).json({ error: 'Forbidden: 僅限已建檔之教職員可上傳檔案附件' });
   }
   
   try {

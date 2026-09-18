@@ -3,6 +3,7 @@ import imageCompression from 'browser-image-compression';
 import { supabase } from '../supabaseClient';
 import { useApp } from '../App';
 import { canManageRepairs, isSuperAdmin, roleTags } from '../lib/staffAccess';
+import { getAuthHeaders } from '../lib/authHeader';
 import { 
   Wrench, 
   ShoppingCart, 
@@ -99,7 +100,7 @@ export default function RepairDashboard() {
     try {
       if (!lineUid) throw new Error('請先使用 LINE 登入再查看案件。');
       const response = await fetch('/api/repairs', {
-        headers: { 'x-line-uid': lineUid }
+        headers: getAuthHeaders(lineUid)
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '案件讀取失敗，請稍後重試。');
@@ -123,7 +124,7 @@ export default function RepairDashboard() {
   // 若為具備管理權限人員，動態讀取可指派的教職員名單
   useEffect(() => {
     if (isAdmin && lineUid) {
-      fetch('/api/staff', { headers: { 'x-line-uid': lineUid } })
+      fetch('/api/staff', { headers: getAuthHeaders(lineUid) })
         .then(res => res.ok ? res.json() : [])
         .then(data => {
           if (Array.isArray(data)) setStaffList(data);
@@ -173,7 +174,7 @@ export default function RepairDashboard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-line-uid': lineUid
+          ...getAuthHeaders(lineUid)
         },
         body: JSON.stringify({
           type, target, location: formattedLocation, description: desc, urgency, media_urls: uploadedUrls
@@ -293,7 +294,7 @@ export default function RepairDashboard() {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        'x-line-uid': lineUid
+        ...getAuthHeaders(lineUid)
       },
       body: JSON.stringify({ id, updates })
     });

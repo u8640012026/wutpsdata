@@ -15,6 +15,11 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
+      const auth = await authenticateApiRequest(req);
+      if (!auth.valid) {
+        return res.status(401).json({ error: auth.error });
+      }
+
       const { dept_id } = req.query;
       let query = supabase.from('brain_documents').select('*').order('created_at', { ascending: false });
       if (dept_id) {

@@ -13,6 +13,7 @@ import {
 import { useApp } from '../App';
 import { supabase } from '../supabaseClient';
 import { roleTags as getRoleTags } from '../lib/staffAccess';
+import { getAuthHeaders } from '../lib/authHeader';
 import { getReadMentions, markMentionAsRead, isMentioned } from '../lib/mentionHelper';
 import {
   parseToTaipeiParts,
@@ -49,7 +50,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
 
   useEffect(() => {
     if (canManage && currentUid) {
-      fetch('/api/staff', { headers: { 'x-line-uid': currentUid } })
+      fetch('/api/staff', { headers: getAuthHeaders(currentUid) })
         .then(r => r.ok ? r.json() : [])
         .then(data => { if (Array.isArray(data)) setStaffList(data); })
         .catch(() => {});
@@ -249,7 +250,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         method: 'DELETE',
         headers: { 
           'Content-Type': 'application/json',
-          'x-line-uid': currentUid
+          ...getAuthHeaders(currentUid)
         },
         body: JSON.stringify({
           action: 'delete',
@@ -282,7 +283,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'x-line-uid': currentUid
+          ...getAuthHeaders(currentUid)
         },
         body: JSON.stringify({ action: 'sync_from_gas' })
       });
@@ -394,7 +395,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
           method: 'PUT',
           headers: { 
             'Content-Type': 'application/json',
-            'x-line-uid': currentUid
+            ...getAuthHeaders(currentUid)
           },
           body: JSON.stringify({
             action: 'update',
@@ -409,15 +410,17 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
           })
         });
       } else {
-        // 新增活動 (POST)
+        // 新增活動 (POST) - 產生 client_event_id 防止併發重複建立
+        const clientEventId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
         res = await fetch('/api/calendar', {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'x-line-uid': currentUid
+            ...getAuthHeaders(currentUid)
           },
           body: JSON.stringify({
             action: 'create',
+            client_event_id: clientEventId,
             calendarType: formData.calendarType,
             title: formData.title.trim(),
             location: formData.location.trim(),

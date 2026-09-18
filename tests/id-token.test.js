@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { verifyLineIdToken } from '../api/line_auth.js';
 
+process.env.NODE_ENV = 'test';
 process.env.VITE_SUPABASE_URL = 'https://database.test';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-only';
 let moduleId = 0;
@@ -175,6 +176,8 @@ test('api/calendar prevents duplicate event creation on identical campus, title,
   globalThis.fetch = async (url, opts) => {
     const address = new URL(String(url));
     if (address.hostname === 'database.test') {
+      const table = address.pathname.split('/').pop();
+      if (table === 'staff') return json({ id: 's1', line_uid: 'U_ADMIN', role_tags: '0' });
       queriedFilters.push(address.search);
       // Simulate existing duplicate record
       return json({
@@ -194,7 +197,7 @@ test('api/calendar prevents duplicate event creation on identical campus, title,
   await calendarHandler(
     {
       method: 'POST',
-      headers: { 'x-line-uid': 'U_ADMIN' },
+      headers: { 'x-line-uid': 'U_ADMIN', 'x-line-id-token': 'test-token' },
       body: {
         calendarType: 'wutai',
         title: '晨會',

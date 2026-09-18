@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
+process.env.NODE_ENV = 'test';
 process.env.VITE_SUPABASE_URL = 'https://database.test';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-only';
 let moduleId = 0;
@@ -21,7 +22,7 @@ test('api/staff rejects dev-admin without valid database record', async t => {
   const { default: handler } = await import(`../api/staff.js?test=${++moduleId}`);
   let statusCode, body;
   await handler(
-    { method: 'GET', headers: { 'x-line-uid': 'dev-admin' } },
+    { method: 'GET', headers: { 'x-line-uid': 'dev-admin', 'x-line-id-token': 'test-token' } },
     {
       status(code) { statusCode = code; return this; },
       json(v) { body = v; return this; },
@@ -51,7 +52,7 @@ test('api/staff forbids deleting a superadmin record (role 0)', async t => {
   const { default: handler } = await import(`../api/staff.js?test=${++moduleId}`);
   let statusCode, body;
   await handler(
-    { method: 'DELETE', headers: { 'x-line-uid': 'super_user' }, body: { id: 'target1' } },
+    { method: 'DELETE', headers: { 'x-line-uid': 'super_user', 'x-line-id-token': 'test-token' }, body: { id: 'target1' } },
     {
       status(code) { statusCode = code; return this; },
       json(v) { body = v; return this; },
@@ -80,7 +81,7 @@ test('api/staff forbids demoting superadmin role tags', async t => {
   await handler(
     {
       method: 'PUT',
-      headers: { 'x-line-uid': 'super_user' },
+      headers: { 'x-line-uid': 'super_user', 'x-line-id-token': 'test-token' },
       body: { id: 'target1', updates: { role_tags: '4' } }
     },
     {
@@ -111,7 +112,7 @@ test('api/bind forbids public binding of role 0 superadmin', async t => {
   await handler(
     {
       method: 'POST',
-      body: { email: 'admin@school.edu.tw', userId: 'attacker_uid' }
+      body: { email: 'admin@school.edu.tw', userId: 'attacker_uid', id_token: 'test-token' }
     },
     {
       status(code) { statusCode = code; return this; },
@@ -141,7 +142,7 @@ test('api/bind rejects overriding an already-bound staff account (409 Conflict)'
   await handler(
     {
       method: 'POST',
-      body: { email: 'teacher@school.edu.tw', userId: 'new_impersonator_uid' }
+      body: { email: 'teacher@school.edu.tw', userId: 'new_impersonator_uid', id_token: 'test-token' }
     },
     {
       status(code) { statusCode = code; return this; },
@@ -243,7 +244,7 @@ test('api/brain rejects write/delete when x-line-uid is missing', async t => {
   );
 
   assert.equal(statusCode, 401);
-  assert.match(body.error, /請先由 LINE 登入校務身分/);
+  assert.match(body.error, /缺少 LINE 官方 ID Token/);
 });
 
 test('api/brain rejects write/delete for unregistered LINE UID', async t => {
@@ -261,7 +262,7 @@ test('api/brain rejects write/delete for unregistered LINE UID', async t => {
   await handler(
     {
       method: 'POST',
-      headers: { 'x-line-uid': 'unknown_stranger' },
+      headers: { 'x-line-uid': 'unknown_stranger', 'x-line-id-token': 'test-token' },
       body: { title: '測試文件', dept_id: 'acad' }
     },
     {

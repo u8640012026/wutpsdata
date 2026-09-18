@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 // Isolated fake services: no production data, messages, or paid model requests.
+process.env.NODE_ENV = 'test';
 process.env.VITE_SUPABASE_URL = 'https://database.test';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-only';
 process.env.CALENDAR_GAS_URL = 'https://calendar.test/exec?existing=1';

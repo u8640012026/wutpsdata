@@ -51,24 +51,26 @@ export async function verifyLineIdToken(idToken, expectedUid = null) {
 
 /**
  * 統一檢驗 API Request Headers 中的身分標頭 (x-line-uid 與 x-line-id-token)
+ * 嚴格要求：在正式環境 (NODE_ENV !== 'test' 或強制要求時) 缺少 ID Token 必須直接拒絕 401
  * @param {import('http').IncomingMessage} req
- * @returns {Promise<{ valid: boolean, error?: string, uid?: string }>}
+ * @returns {Promise<{ valid: boolean, error?: string, uid?: string, payload?: object }>}
  */
 export async function authenticateApiRequest(req) {
-  const lineUid = req.headers['x-line-uid'];
-  const idToken = req.headers['x-line-id-token'];
+  const lineUid = req.headers?.['x-line-uid'];
+  const idToken = req.headers?.['x-line-id-token'];
 
-  if (!lineUid) {
-    return { valid: false, error: 'Unauthorized: 請先由 LINE 登入校務身分 (Missing LINE UID)' };
+  // 1. 缺少 ID Token 查驗：一律拒絕存取，杜絕偽造 x-line-uid
+  if (!idToken) {
+    return { valid: false, error: 'Unauthorized: 缺少 LINE 官方 ID Token 憑證，拒絕存取' };
   }
 
-  // 若前端帶有 LINE ID Token，執行官方防偽驗證
-  if (idToken) {
-    const result = await verifyLineIdToken(idToken, lineUid);
-    if (!result.valid) {
-      return { valid: false, error: result.error };
-    }
+  // 2. 驗證 ID Token 的加密真實性與有效期
+  const result = await verifyLineIdToken(idToken, lineUid);
+  if (!result.valid) {
+    return { valid: false, error: result.error };
   }
 
-  return { valid: true, uid: lineUid };
+  // 3. 永遠以 LINE 官方解密出來的 sub (真實 UID) 為唯一受信身分！
+  const trustedUid = result.payload.sub;
+  return { valid: true, uid: trustedUid, payload: result.payload };
 }

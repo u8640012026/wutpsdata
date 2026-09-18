@@ -13,13 +13,15 @@ export default async function handler(req, res) {
   const { email, displayName, userId, id_token } = req.body;
   if (!email || !userId) return res.status(400).json({ error: 'Missing parameters' });
 
-  // 若前端提供了 LINE ID Token，進行官方防偽憑證校驗
-  if (id_token) {
-    const tokenResult = await verifyLineIdToken(id_token, userId);
-    if (!tokenResult.valid) {
-      return res.status(401).json({ error: tokenResult.error });
-    }
+  // 官方防偽憑證校驗：缺少 ID Token 一律拒絕綁定
+  if (!id_token) {
+    return res.status(401).json({ error: '缺少 LINE 官方 ID Token 憑證，拒絕綁定' });
   }
+  const tokenResult = await verifyLineIdToken(id_token, userId);
+  if (!tokenResult.valid) {
+    return res.status(401).json({ error: tokenResult.error });
+  }
+  const verifiedUid = tokenResult.payload.sub;
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(500).json({ error: '伺服器未設定機密金鑰 (SERVICE_ROLE_KEY)' });
@@ -44,20 +46,20 @@ export default async function handler(req, res) {
     }
 
     // 3. 防覆蓋保護：若已綁定且 UID 不符，嚴禁直接搶佔覆蓋
-    if (existingStaff.line_uid && existingStaff.line_uid !== userId) {
+    if (existingStaff.line_uid && existingStaff.line_uid !== verifiedUid) {
       return res.status(409).json({ error: '此信箱已綁定其他 LINE 帳號。為保障帳號安全，若需換綁請洽系統管理員重設。' });
     }
 
     // 4. 如果尚未綁定，或為原使用者重複綁定，才寫入 LINE UID
     const { error: updateError } = await supabase
       .from('staff')
-      .update({ line_uid: userId })
+      .update({ line_uid: verifiedUid })
       .eq('id', existingStaff.id);
 
     if (updateError) throw updateError;
     
     await supabase.from('audit_logs').insert({
-      actor_uid: userId,
+      actor_uid: verifiedUid,
       actor_role: 'system',
       action: 'BIND_ACCOUNT',
       target_table: 'staff',

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { roleTags, isSuperAdmin, isSchoolAdmin, homeroomClass, studentClass, canManageRepairs } from '../src/lib/staffAccess.js';
 
+process.env.NODE_ENV = 'test';
 process.env.VITE_SUPABASE_URL = 'https://database.test';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-only';
 let moduleId = 0;
@@ -35,7 +36,7 @@ async function invoke(t, file, staff, req, existing = { id: 'r1', reporter_uid: 
   t.after(() => { globalThis.fetch = originalFetch; });
   const { default: handler } = await import(`../api/${file}.js?test=${++moduleId}`);
   let status, body;
-  await handler({ headers: { 'x-line-uid': 'teacher' }, ...req }, {
+  await handler({ headers: { 'x-line-uid': 'teacher', 'x-line-id-token': 'test-token' }, ...req }, {
     status(code) { status = code; return this; }, json(value) { body = value; return this; }, send(value) { body = value; }
   });
   return { status, body, mutations };
@@ -81,7 +82,7 @@ test('missing homeroom assignment is denied rather than selecting first student 
 });
 
 test('administrative role routes to admin regardless of job title wording', async t => {
-  const result = await invoke(t, 'auth', { role_tags: '2', title: '教務主任' }, { method: 'POST', body: { line_uid: 'teacher' } });
+  const result = await invoke(t, 'auth', { role_tags: '2', title: '教務主任' }, { method: 'POST', body: { line_uid: 'teacher', id_token: 'test-token' } });
   assert.equal(result.body.role, 'admin');
 });
 

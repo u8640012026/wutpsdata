@@ -1,5 +1,7 @@
+import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { authenticateApiRequest } from './line_auth.js';
+import { isSuperAdmin, roleTags } from '../src/lib/staffAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -8,33 +10,61 @@ const supabase = createClient(
 
 const GAS_URL = process.env.CALENDAR_GAS_URL || 'https://script.google.com/macros/s/AKfycbwqB0mHhuLrzUrpe2M7ngW4_97_sQ2VN_MukBetf8sesqG1sJXEX0BIQDxgfOe7L7P3/exec';
 
-// 從 GAS 拉取所有活動的輔助函式（供降級回退與雙向同步使用，內建中斷重試機制）
+// 全域進行中請求互斥鎖 (In-Flight Request Mutex for Concurrency Protection)
+const inFlightCreations = new Map();
+
+// 從 GAS 拉取所有活動的輔助函式（具備指數退避重試、逾時控制與失敗真實識別）
 async function fetchEventsFromGas(targetTypes = ['all', 'wutai', 'ligu']) {
+  let anySuccess = false;
+  const errors = [];
+
   const fetchPromises = targetTypes.map(async (t) => {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000); // 6秒請求逾時
+
       try {
-        const r = await fetch(`${GAS_URL}?type=${t}`);
+        const r = await fetch(`${GAS_URL}?type=${t}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (r.ok) {
           const data = await r.json();
           if (data.status === 'success' && Array.isArray(data.data)) {
+            anySuccess = true;
             return data.data.map(item => ({
               ...item,
               calendarType: item.calendarType || t
             }));
           }
         }
+        throw new Error(`GAS 端點回傳異常狀態碼: ${r.status}`);
       } catch (err) {
-        if (attempt === 2) {
-          console.warn(`Fetch calendar type ${t} from GAS failed after retry:`, err.message);
+        clearTimeout(timeoutId);
+        if (attempt < maxAttempts) {
+          const delay = attempt * 150; // 指數退避延遲 (150ms -> 300ms)
+          await new Promise(res => setTimeout(res, delay));
+        } else {
+          errors.push(`校區 ${t} 同步失敗: ${err.message}`);
         }
       }
     }
-    return [];
+    return null; // 代表該校區三次重試皆失敗
   });
 
   const results = await Promise.all(fetchPromises);
+  const failedTypes = results.filter(r => r === null);
+
+  // 關鍵：若全部校區請求皆重試失敗，嚴禁假裝成功返回空陣列！
+  if (targetTypes.length > 0 && failedTypes.length === targetTypes.length) {
+    const errorMsg = `Google 日曆連線中斷或逾時: ${errors.join('; ')}`;
+    const err = new Error(errorMsg);
+    err.isTotalFailure = true;
+    throw err;
+  }
+
+  const validResults = results.filter(Array.isArray);
   const eventMap = new Map();
-  results.flat().forEach(ev => {
+  validResults.flat().forEach(ev => {
     if (ev && ev.id) {
       eventMap.set(ev.id, ev);
     }
@@ -108,14 +138,21 @@ export default async function handler(req, res) {
       }
 
       // 2. 降級備援：若 Supabase 尚未建表或為空，平滑回退向 GAS 查詢
-      const combinedEvents = await fetchEventsFromGas(targetTypes);
-      return res.status(200).json({
-        status: 'success',
-        filter: type,
-        source: 'gas',
-        count: combinedEvents.length,
-        data: combinedEvents
-      });
+      try {
+        const combinedEvents = await fetchEventsFromGas(targetTypes);
+        return res.status(200).json({
+          status: 'success',
+          filter: type,
+          source: 'gas',
+          count: combinedEvents.length,
+          data: combinedEvents
+        });
+      } catch (gasErr) {
+        return res.status(500).json({
+          status: 'error',
+          message: '無法讀取行事曆活動：' + gasErr.message
+        });
+      }
     }
 
     // 解析 Payload
@@ -128,9 +165,40 @@ export default async function handler(req, res) {
       }
     }
 
+    // ── 寫入與管理操作（POST, PUT, DELETE）：強制身分驗證與校務管理角色校驗 ──
+    const auth = await authenticateApiRequest(req);
+    if (!auth.valid) {
+      return res.status(401).json({ status: 'error', message: auth.error });
+    }
+
+    // 查驗調用者角色：僅限系統管理員(0)、校長(1)、主任(2)、組長(3)
+    const { data: callerStaff } = await supabase
+      .from('staff')
+      .select('*')
+      .eq('line_uid', auth.uid)
+      .maybeSingle();
+
+    if (!callerStaff) {
+      return res.status(403).json({ status: 'error', message: 'Forbidden: 查無此教職員身分，拒絕授權' });
+    }
+
+    const tags = roleTags(callerStaff);
+    const hasCalendarPermission = isSuperAdmin(callerStaff) || ['0', '1', '2', '3'].some(t => tags.includes(t));
+    if (!hasCalendarPermission) {
+      return res.status(403).json({ status: 'error', message: 'Forbidden: 權限不足，僅限行政主管與管理員操作日曆' });
+    }
+
     // ── 從 Google 日曆單向/雙向拉取最新行程至 Supabase ──
     if (req.method === 'POST' && payload?.action === 'sync_from_gas') {
-      const gasEvents = await fetchEventsFromGas(['all', 'wutai', 'ligu']);
+      let gasEvents;
+      try {
+        gasEvents = await fetchEventsFromGas(['all', 'wutai', 'ligu']);
+      } catch (err) {
+        return res.status(502).json({
+          status: 'error',
+          message: 'Google 日曆同步失敗：' + err.message
+        });
+      }
       let syncedCount = 0;
       for (const ev of gasEvents) {
         try {
@@ -300,100 +368,154 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const { 
         calendarType, title, location, description, startTime, endTime, isAllDay,
-        periodInfo, targetGrades, department, creatorName, creatorUid 
+        periodInfo, targetGrades, department, creatorName, creatorUid, client_event_id
       } = payload || {};
 
       if (!title || !startTime) {
         return res.status(400).json({ status: 'error', message: '缺少活動名稱 (title) 或開始時間 (startTime)' });
       }
 
-      if (req.headers && (req.headers['x-line-uid'] || req.headers['x-line-id-token'])) {
-        const auth = await authenticateApiRequest(req);
-        if (!auth.valid) {
-          return res.status(401).json({ status: 'error', message: auth.error });
-        }
+      const clientEventId = client_event_id || req.headers?.['idempotency-key'] || payload?.id;
+      const dedupeKey = clientEventId || `${calendarType || 'all'}_${title.trim()}_${startTime}`;
+
+      // 1. 記憶體互斥鎖 (In-Flight Concurrency Mutex)
+      if (inFlightCreations.has(dedupeKey)) {
+        const result = await inFlightCreations.get(dedupeKey);
+        return res.status(result.status).json(result.body);
       }
 
-      // 併發防重複保護：若已存在相同校區、標題與開始時間的活動，直接回傳既有活動，防止連點或同時發送產生重複資料
-      const { data: duplicate } = await supabase
-        .from('calendar_events')
-        .select('*')
-        .eq('calendar_type', calendarType || 'all')
-        .eq('title', title.trim())
-        .eq('start_time', startTime)
-        .limit(1)
-        .maybeSingle();
+      const creationPromise = (async () => {
+        // 2. 檢查是否已透過相同 client_event_id 寫入資料庫
+        if (clientEventId) {
+          const { data: existingRow } = await supabase
+            .from('calendar_events')
+            .select('*')
+            .eq('id', clientEventId)
+            .maybeSingle();
 
-      if (duplicate) {
-        return res.status(200).json({
-          status: 'success',
-          message: '活動已存在（防止重複建立）',
-          event: duplicate
-        });
-      }
-
-      const { data: newRow, error: insertError } = await supabase
-        .from('calendar_events')
-        .insert([{
-          calendar_type: calendarType || 'all',
-          title: title.trim(),
-          location: (location || '').trim(),
-          description: (description || '').trim(),
-          start_time: startTime,
-          end_time: endTime || startTime,
-          is_all_day: Boolean(isAllDay),
-          period_info: periodInfo || '',
-          target_grades: targetGrades || '全校所有班級',
-          department: department || '教務處',
-          creator_name: creatorName || '',
-          creator_uid: creatorUid || ''
-        }])
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('Calendar insert error:', insertError.message);
-        return res.status(500).json({ status: 'error', message: '資料庫寫入活動失敗：' + insertError.message });
-      }
-
-      if (!newRow?.id) {
-        return res.status(500).json({ status: 'error', message: '活動新增異常：未能產生有效活動 ID' });
-      }
-
-      const insertedId = newRow.id;
-
-      // 背景非同步發送給 GAS，取得 Google 日曆 Event ID 並回填 (Fire-and-forget)
-      fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create',
-          calendarType: calendarType || 'all',
-          title: title.trim(),
-          location: location ? location.trim() : '',
-          description: description ? description.trim() : '',
-          startTime,
-          endTime: endTime || startTime,
-          isAllDay: Boolean(isAllDay)
-        })
-      }).then(async gasRes => {
-        if (gasRes.ok) {
-          const gasData = await gasRes.json();
-          if (gasData?.eventId && insertedId) {
-            await supabase
-              .from('calendar_events')
-              .update({ gcal_event_id: gasData.eventId })
-              .eq('id', insertedId);
+          if (existingRow) {
+            return {
+              status: 200,
+              body: { status: 'success', message: '活動已存在（防止重複建立 / 請求冪等保護）', event: existingRow, deduplicated: true }
+            };
           }
         }
-      }).catch(err => console.warn('Background GAS create failed:', err.message));
 
-      // 0.05 秒立即回應前端，前端抽屜無感秒關
-      return res.status(200).json({
-        status: 'success',
-        id: insertedId,
-        message: '活動已建立成功'
-      });
+        // 3. 檢查校區、活動名稱與開始時間是否已存在
+        const { data: existingDup } = await supabase
+          .from('calendar_events')
+          .select('*')
+          .eq('calendar_type', calendarType || 'all')
+          .eq('title', title.trim())
+          .eq('start_time', startTime)
+          .maybeSingle();
+
+        if (existingDup) {
+          return {
+            status: 200,
+            body: { status: 'success', message: '活動已存在（防止重複建立）', event: existingDup, deduplicated: true }
+          };
+        }
+
+        const eventRowId = clientEventId || crypto.randomUUID();
+        const { data: newRow, error: insertError } = await supabase
+          .from('calendar_events')
+          .insert([{
+            id: eventRowId,
+            calendar_type: calendarType || 'all',
+            title: title.trim(),
+            location: (location || '').trim(),
+            description: (description || '').trim(),
+            start_time: startTime,
+            end_time: endTime || startTime,
+            is_all_day: Boolean(isAllDay),
+            period_info: periodInfo || '',
+            target_grades: targetGrades || '全校所有班級',
+            department: department || '教務處',
+            creator_name: callerStaff?.name || creatorName || '',
+            creator_uid: auth.uid,
+            sync_status: 'pending_push'
+          }])
+          .select()
+          .single();
+
+        if (insertError) {
+          // 捕捉 PostgreSQL 23505 主鍵衝突或唯一鍵衝突（真正併發競爭）
+          if (insertError.code === '23505' || insertError.message?.includes('duplicate')) {
+            const { data: dupRow } = await supabase
+              .from('calendar_events')
+              .select('*')
+              .or(`id.eq.${eventRowId},and(calendar_type.eq.${calendarType || 'all'},title.eq.${title.trim()},start_time.eq.${startTime})`)
+              .maybeSingle();
+            return {
+              status: 200,
+              body: { status: 'success', message: '活動已存在（防止重複建立 / 併發冪等攔截）', event: dupRow, deduplicated: true }
+            };
+          }
+          console.error('Calendar insert error:', insertError.message);
+          return {
+            status: 500,
+            body: { status: 'error', message: '資料庫寫入活動失敗：' + insertError.message }
+          };
+        }
+
+        if (!newRow?.id) {
+          return {
+            status: 500,
+            body: { status: 'error', message: '活動新增異常：未能產生有效活動 ID' }
+          };
+        }
+
+        // 背景非同步發送給 GAS，取得 Google 日曆 Event ID 並更新 sync_status
+        fetch(GAS_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create',
+            calendarType: calendarType || 'all',
+            title: title.trim(),
+            location: location ? location.trim() : '',
+            description: description ? description.trim() : '',
+            startTime,
+            endTime: endTime || startTime,
+            isAllDay: Boolean(isAllDay)
+          })
+        }).then(async gasRes => {
+          if (gasRes.ok) {
+            const gasData = await gasRes.json();
+            if (gasData?.eventId) {
+              await supabase
+                .from('calendar_events')
+                .update({ gcal_event_id: gasData.eventId, sync_status: 'synced', sync_error: null })
+                .eq('id', eventRowId);
+              return;
+            }
+          }
+          await supabase.from('calendar_events').update({
+            sync_status: 'failed',
+            sync_error: 'Google Apps Script 回傳失敗'
+          }).eq('id', eventRowId);
+        }).catch(async err => {
+          await supabase.from('calendar_events').update({
+            sync_status: 'failed',
+            sync_error: err.message
+          }).eq('id', eventRowId);
+        });
+
+        return {
+          status: 200,
+          body: { status: 'success', message: '活動已成功建立', event: newRow }
+        };
+      })();
+
+      inFlightCreations.set(dedupeKey, creationPromise);
+
+      try {
+        const resObj = await creationPromise;
+        return res.status(resObj.status).json(resObj.body);
+      } finally {
+        inFlightCreations.delete(dedupeKey);
+      }
     }
 
     return res.status(405).json({ status: 'error', message: 'Method Not Allowed' });

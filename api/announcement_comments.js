@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { authenticateApiRequest } from './line_auth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -26,12 +27,31 @@ export default async function handler(req, res) {
     }
     
     if (req.method === 'POST') {
-      const { announcement_id, author_uid, author_name, content } = req.body;
-      if (!announcement_id || !content) return res.status(400).json({ error: 'Missing parameters' });
+      const auth = await authenticateApiRequest(req);
+      if (!auth.valid) return res.status(401).json({ error: auth.error });
+      const trustedUid = auth.uid;
+
+      // 自教職員名冊查詢真實姓名，防止自訂偽造
+      const { data: staffData } = await supabase
+        .from('staff')
+        .select('id, name')
+        .eq('line_uid', trustedUid)
+        .maybeSingle();
+
+      const trustedName = staffData?.name || '校務同仁';
+      const { announcement_id, content } = req.body || {};
+      if (!announcement_id || !content || !content.trim()) {
+        return res.status(400).json({ error: '缺少公告 ID 或留言內容' });
+      }
 
       const { data, error } = await supabase
         .from('announcement_comments')
-        .insert([{ announcement_id, author_uid, author_name, content }])
+        .insert([{ 
+          announcement_id, 
+          author_uid: trustedUid, 
+          author_name: trustedName, 
+          content: content.trim() 
+        }])
         .select();
         
       if (error) throw error;

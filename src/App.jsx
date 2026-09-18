@@ -7,6 +7,7 @@ import PublicShareView from './components/PublicShareView';
 import { translations } from './i18n';
 import liff from '@line/liff';
 import { isSuperAdmin, canManageRepairs } from './lib/staffAccess';
+import { getAuthHeaders } from './lib/authHeader';
 import { getReadMentions, isMentioned } from './lib/mentionHelper';
 import { LayoutDashboard, Wrench, Sun, Moon, Languages, LogOut, User, ChevronDown } from 'lucide-react';
 
@@ -116,7 +117,7 @@ function App() {
   const fetchRepairBadge = useCallback(async (uid, staff) => {
     if (!uid) return;
     try {
-      const res = await fetch('/api/repairs', { headers: { 'x-line-uid': uid } });
+      const res = await fetch('/api/repairs', { headers: getAuthHeaders(uid) });
       if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data)) {
