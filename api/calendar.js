@@ -44,7 +44,7 @@ async function fetchEventsFromGas(targetTypes = ['all', 'wutai', 'ligu']) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-line-uid');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -60,25 +60,22 @@ export default async function handler(req, res) {
         targetTypes = ['all', 'wutai'];
       } else if (type === 'ligu') {
         targetTypes = ['all', 'ligu'];
-      } else if (type === 'only_all') {
-        targetTypes = ['all'];
       }
 
-      // 1. 優先嘗試從 Supabase calendar_events 讀取（毫秒級極速回應）
+      // 1. 優先從 Supabase 讀取（毫秒級極速回應）
       try {
-        let query = supabase.from('calendar_events').select('*');
-        if (type === 'wutai') {
-          query = query.in('calendar_type', ['all', 'wutai']);
-        } else if (type === 'ligu') {
-          query = query.in('calendar_type', ['all', 'ligu']);
-        } else if (type === 'only_all') {
-          query = query.eq('calendar_type', 'all');
-        }
-        query = query.order('start_time', { ascending: true });
+        let query = supabase
+          .from('calendar_events')
+          .select('*')
+          .order('start_time', { ascending: true });
 
-        const { data: dbEvents, error: dbError } = await query;
-        if (!dbError && Array.isArray(dbEvents) && dbEvents.length > 0) {
-          const mapped = dbEvents.map(ev => ({
+        if (type !== 'all') {
+          query = query.in('calendar_type', ['all', type]);
+        }
+
+        const { data: events, error: dbError } = await query;
+        if (!dbError && Array.isArray(events) && events.length > 0) {
+          const mapped = events.map(ev => ({
             id: ev.id,
             gcal_event_id: ev.gcal_event_id || ev.id,
             calendarType: ev.calendar_type,
@@ -139,12 +136,14 @@ export default async function handler(req, res) {
             .eq('gcal_event_id', ev.id)
             .maybeSingle();
 
+          // 強化比對：包含 calendar_type，防止跨校區同名同時間活動被誤合併
           if (!existing && ev.title && ev.start) {
             const { data: matchByTime } = await supabase
               .from('calendar_events')
               .select('id')
               .eq('title', ev.title)
               .eq('start_time', ev.start)
+              .eq('calendar_type', ev.calendarType || 'all')
               .maybeSingle();
             if (matchByTime) {
               existing = matchByTime;
@@ -197,19 +196,24 @@ export default async function handler(req, res) {
       }
 
       let gcalId = eventId;
-      try {
-        const { data: existing } = await supabase
-          .from('calendar_events')
-          .select('id, gcal_event_id, calendar_type')
-          .or(`id.eq.${eventId},gcal_event_id.eq.${eventId}`)
-          .maybeSingle();
+      const { data: existing, error: findErr } = await supabase
+        .from('calendar_events')
+        .select('id, gcal_event_id, calendar_type')
+        .or(`id.eq.${eventId},gcal_event_id.eq.${eventId}`)
+        .maybeSingle();
 
-        if (existing) {
-          gcalId = existing.gcal_event_id || eventId;
-          await supabase.from('calendar_events').delete().eq('id', existing.id);
+      if (findErr) {
+        return res.status(500).json({ status: 'error', message: '查詢待刪除活動失敗：' + findErr.message });
+      }
+
+      if (existing) {
+        gcalId = existing.gcal_event_id || eventId;
+        const { error: delErr } = await supabase.from('calendar_events').delete().eq('id', existing.id);
+        if (delErr) {
+          return res.status(500).json({ status: 'error', message: '資料庫刪除活動失敗：' + delErr.message });
         }
-      } catch (dbDelErr) {
-        console.warn('Supabase delete warning:', dbDelErr.message);
+      } else {
+        return res.status(404).json({ status: 'error', message: '查無此活動記錄，無法刪除' });
       }
 
       // 背景非同步通知 GAS 刪除 Google 日曆事件 (Fire-and-forget)
@@ -236,28 +240,34 @@ export default async function handler(req, res) {
       }
 
       let gcalId = eventId;
-      try {
-        const { data: existing } = await supabase
-          .from('calendar_events')
-          .select('id, gcal_event_id')
-          .or(`id.eq.${eventId},gcal_event_id.eq.${eventId}`)
-          .maybeSingle();
+      const { data: existing, error: findErr } = await supabase
+        .from('calendar_events')
+        .select('id, gcal_event_id')
+        .or(`id.eq.${eventId},gcal_event_id.eq.${eventId}`)
+        .maybeSingle();
 
-        if (existing) {
-          gcalId = existing.gcal_event_id || eventId;
-          await supabase.from('calendar_events').update({
-            calendar_type: calendarType || 'all',
-            title: title.trim(),
-            location: (location || '').trim(),
-            description: (description || '').trim(),
-            start_time: startTime,
-            end_time: endTime || startTime,
-            is_all_day: Boolean(isAllDay),
-            updated_at: new Date().toISOString()
-          }).eq('id', existing.id);
-        }
-      } catch (dbUpErr) {
-        console.warn('Supabase update warning:', dbUpErr.message);
+      if (findErr) {
+        return res.status(500).json({ status: 'error', message: '查詢活動資料失敗：' + findErr.message });
+      }
+
+      if (!existing) {
+        return res.status(404).json({ status: 'error', message: '查無此活動記錄，無法更新' });
+      }
+
+      gcalId = existing.gcal_event_id || eventId;
+      const { error: updateErr } = await supabase.from('calendar_events').update({
+        calendar_type: calendarType || 'all',
+        title: title.trim(),
+        location: (location || '').trim(),
+        description: (description || '').trim(),
+        start_time: startTime,
+        end_time: endTime || startTime,
+        is_all_day: Boolean(isAllDay),
+        updated_at: new Date().toISOString()
+      }).eq('id', existing.id);
+
+      if (updateErr) {
+        return res.status(500).json({ status: 'error', message: '更新活動失敗：' + updateErr.message });
       }
 
       // 背景非同步通知 GAS 更新 Google 日曆事件 (Fire-and-forget)
@@ -293,33 +303,35 @@ export default async function handler(req, res) {
         return res.status(400).json({ status: 'error', message: '缺少活動名稱 (title) 或開始時間 (startTime)' });
       }
 
-      let insertedId = null;
-      try {
-        const { data: newRow, error: insertError } = await supabase
-          .from('calendar_events')
-          .insert([{
-            calendar_type: calendarType || 'all',
-            title: title.trim(),
-            location: (location || '').trim(),
-            description: (description || '').trim(),
-            start_time: startTime,
-            end_time: endTime || startTime,
-            is_all_day: Boolean(isAllDay),
-            period_info: periodInfo || '',
-            target_grades: targetGrades || '全校所有班級',
-            department: department || '教務處',
-            creator_name: creatorName || '',
-            creator_uid: creatorUid || ''
-          }])
-          .select()
-          .single();
+      const { data: newRow, error: insertError } = await supabase
+        .from('calendar_events')
+        .insert([{
+          calendar_type: calendarType || 'all',
+          title: title.trim(),
+          location: (location || '').trim(),
+          description: (description || '').trim(),
+          start_time: startTime,
+          end_time: endTime || startTime,
+          is_all_day: Boolean(isAllDay),
+          period_info: periodInfo || '',
+          target_grades: targetGrades || '全校所有班級',
+          department: department || '教務處',
+          creator_name: creatorName || '',
+          creator_uid: creatorUid || ''
+        }])
+        .select()
+        .single();
 
-        if (!insertError && newRow) {
-          insertedId = newRow.id;
-        }
-      } catch (dbInsErr) {
-        console.warn('Supabase insert warning:', dbInsErr.message);
+      if (insertError) {
+        console.error('Calendar insert error:', insertError.message);
+        return res.status(500).json({ status: 'error', message: '資料庫寫入活動失敗：' + insertError.message });
       }
+
+      if (!newRow?.id) {
+        return res.status(500).json({ status: 'error', message: '活動新增異常：未能產生有效活動 ID' });
+      }
+
+      const insertedId = newRow.id;
 
       // 背景非同步發送給 GAS，取得 Google 日曆 Event ID 並回填 (Fire-and-forget)
       fetch(GAS_URL, {

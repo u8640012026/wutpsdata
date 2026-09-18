@@ -200,22 +200,32 @@ export default function SchoolBrain() {
       };
 
       // 2. 存入後端 API (Supabase)
-      try {
-        await fetch('/api/brain', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            dept_id: activeDept.id,
-            title: file.name,
-            file_name: file.name,
-            file_size: newDoc.fileSize,
-            uploaded_by: uploaderName,
-            extracted_text: extractedText,
-            summary: generatedSummary
-          })
-        });
-      } catch (apiErr) {
-        console.warn('API 保存提醒:', apiErr);
+      const lineUid = liffProfile?.userId || staffData?.line_uid || '';
+      const res = await fetch('/api/brain', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-line-uid': lineUid
+        },
+        body: JSON.stringify({
+          dept_id: activeDept.id,
+          title: file.name,
+          file_name: file.name,
+          file_size: newDoc.fileSize,
+          uploaded_by: uploaderName,
+          extracted_text: extractedText,
+          summary: generatedSummary
+        })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || '雲端知識庫儲存失敗，請重試');
+      }
+
+      const savedData = await res.json();
+      if (savedData?.id) {
+        newDoc.id = savedData.id;
       }
 
       // 3. 更新前端狀態與本機持久化快照
@@ -248,20 +258,29 @@ export default function SchoolBrain() {
     }
     if (window.confirm(`確定要將《${title}》從 AI 大腦中徹底移除嗎？移除後 LINE 機器人將無法檢索此檔案。`)) {
       try {
-        await fetch('/api/brain', {
+        const lineUid = liffProfile?.userId || staffData?.line_uid || '';
+        const res = await fetch('/api/brain', {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-line-uid': lineUid
+          },
           body: JSON.stringify({ id: docId })
         });
-      } catch (err) {
-        console.warn('Delete API warning:', err);
-      }
 
-      setDocuments(prev => {
-        const filtered = prev.filter(d => (d.id || d.title) !== docId && d.title !== title);
-        localStorage.setItem('wutps_real_brain_docs', JSON.stringify(filtered));
-        return filtered;
-      });
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          throw new Error(errJson.error || '刪除失敗');
+        }
+
+        setDocuments(prev => {
+          const filtered = prev.filter(d => (d.id || d.title) !== docId && d.title !== title);
+          localStorage.setItem('wutps_real_brain_docs', JSON.stringify(filtered));
+          return filtered;
+        });
+      } catch (err) {
+        alert('文件刪除失敗: ' + err.message);
+      }
     }
   };
 

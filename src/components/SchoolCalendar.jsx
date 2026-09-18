@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar as CalendarIcon, 
@@ -17,13 +17,41 @@ import {
   Trash2,
   UserCheck,
   AtSign,
-  Search,
-  Filter
+  Search
 } from 'lucide-react';
 import { useApp } from '../App';
 import { supabase } from '../supabaseClient';
 import { roleTags as getRoleTags } from '../lib/staffAccess';
 import { isMentioned, getReadMentions, markMentionAsRead, renderContentWithLinksAndMentions } from '../lib/mentionHelper';
+
+// 標準化臺灣時區 (Asia/Taipei, UTC+8) 解析工具，杜絕 UTC 截字串產生的 8 小時偏移
+function parseToTaipeiParts(isoString, defaultTime = '09:00') {
+  if (!isoString) {
+    const now = new Date();
+    const date = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+    return { date, time: defaultTime };
+  }
+
+  // 若為純日期格式 (YYYY-MM-DD)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoString)) {
+    return { date: isoString, time: defaultTime };
+  }
+
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) {
+    const fallbackDate = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+    return { date: fallbackDate, time: defaultTime };
+  }
+
+  const date = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+  const time = d.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Taipei',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  return { date, time };
+}
 
 // SWR 前端持久化與記憶體雙層快取（保證切換頁面 0 毫秒極速瞬開）
 const CACHE_PREFIX = 'wutps_cal_v3_';
@@ -221,6 +249,9 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     notes: ''
   });
 
+  // 競態條件防護：紀錄目前活躍中的校區篩選條件
+  const activeFilterRef = useRef(filterType);
+
   // 載入日曆活動（直接向 Supabase 查詢 69ms 極速回應，支援 isSilent 背景靜默更新）
   const loadEvents = async (isSilent = false) => {
     if (!isSilent && events.length === 0) {
@@ -238,6 +269,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       query = query.order('start_time', { ascending: true });
 
       const { data: dbEvents, error: dbError } = await query;
+
+      // 檢查是否已被使用者切換至其他校區，若已切換則丟棄舊回應
+      if (activeFilterRef.current !== filterType) return;
+
       if (!dbError && Array.isArray(dbEvents) && dbEvents.length > 0) {
         const mapped = dbEvents.map(ev => ({
           id: ev.id,
@@ -263,6 +298,9 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       // 2. 備援降級：若前端直讀失敗，呼叫後端 API
       const res = await fetch(`/api/calendar?type=${filterType}`);
       const json = await res.json();
+
+      if (activeFilterRef.current !== filterType) return;
+
       if (json.status === 'success' && Array.isArray(json.data)) {
         setCachedEvents(filterType, json.data);
         setEvents(json.data);
@@ -270,13 +308,17 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         if (!isSilent) setErrorMsg(json.message || '無法取得日曆資料');
       }
     } catch (_err) {
+      if (activeFilterRef.current !== filterType) return;
       if (!isSilent) setErrorMsg('連線異常，請稍後重試');
     } finally {
-      setIsLoading(false);
+      if (activeFilterRef.current === filterType) {
+        setIsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
+    activeFilterRef.current = filterType;
     const cached = getCachedEvents(filterType);
     if (cached.length > 0) {
       setEvents(cached);
@@ -301,10 +343,11 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
   // 開啟新增活動抽屜
   const handleOpenCreate = () => {
     setEditingEventId(null);
+    const todayParts = parseToTaipeiParts();
     setFormData({
       calendarType: filterType === 'all' ? 'all' : filterType,
       title: '',
-      date: new Date().toISOString().slice(0, 10),
+      date: todayParts.date,
       timeMode: 'all_day',
       allDayType: 'full',
       startPeriod: 'p1',
@@ -326,20 +369,20 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     setEditingEventId(ev.id);
     setSelectedEvent(null);
 
-    const startDate = ev.start ? ev.start.slice(0, 10) : new Date().toISOString().slice(0, 10);
-    const startT = ev.start ? ev.start.slice(11, 16) : '09:00';
-    const endT = ev.end ? ev.end.slice(11, 16) : '10:00';
+    // 使用標準臺灣時區解析，防止 UTC 截字串產生的 8 小時偏移
+    const startParts = parseToTaipeiParts(ev.start, '09:00');
+    const endParts = parseToTaipeiParts(ev.end, '10:00');
 
     setFormData({
       calendarType: ev.calendarType || 'all',
       title: ev.title || '',
-      date: startDate,
+      date: startParts.date,
       timeMode: ev.isAllDay ? 'all_day' : 'custom',
       allDayType: 'full',
       startPeriod: 'p1',
       endPeriod: 'p4',
-      customStartTime: startT,
-      customEndTime: endT,
+      customStartTime: startParts.time,
+      customEndTime: endParts.time,
       location: ev.location || '',
       isAllClasses: !ev.description || ev.description.includes('全校所有班級'),
       selectedClasses: [],
@@ -359,7 +402,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     try {
       const res = await fetch('/api/calendar', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-line-uid': currentUid
+        },
         body: JSON.stringify({
           action: 'delete',
           eventId,
@@ -367,7 +413,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         })
       });
       const json = await res.json();
-      if (json.status === 'success') {
+      if (res.ok && json.status === 'success') {
         setSelectedEvent(null);
         // 清空快取並立即重新整理
         clearAllCalendarCache();
@@ -389,7 +435,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     try {
       const res = await fetch('/api/calendar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-line-uid': currentUid
+        },
         body: JSON.stringify({ action: 'sync_from_gas' })
       });
       const data = await res.json();
@@ -407,7 +456,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     }
   };
 
-  // 日期快速帶入
+  // 日期快速帶入（使用臺灣本地時區）
   const setQuickDate = (type) => {
     const d = new Date();
     if (type === 'tomorrow') {
@@ -417,7 +466,8 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       const diff = d.getDate() + (day === 0 ? 1 : 8 - day);
       d.setDate(diff);
     }
-    setFormData(prev => ({ ...prev, date: d.toISOString().slice(0, 10) }));
+    const dateStr = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+    setFormData(prev => ({ ...prev, date: dateStr }));
   };
 
   // 班級點陣切換
@@ -497,7 +547,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         // 編輯活動 (PUT)
         res = await fetch('/api/calendar', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-line-uid': currentUid
+          },
           body: JSON.stringify({
             action: 'update',
             eventId: editingEventId,
@@ -514,7 +567,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         // 新增活動 (POST)
         res = await fetch('/api/calendar', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-line-uid': currentUid
+          },
           body: JSON.stringify({
             action: 'create',
             calendarType: formData.calendarType,
@@ -523,7 +579,9 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
             description: desc,
             startTime,
             endTime,
-            isAllDay
+            isAllDay,
+            creatorName: currentUserName,
+            creatorUid: currentUid
           })
         });
       }
@@ -540,7 +598,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
           loadEvents(false);
         }, 400);
       } else {
-        alert(resData.message || '操作失敗，請稍後重試');
+        alert(resData.message || '儲存失敗，請檢查內容後重試');
       }
     } catch (err) {
       alert(`發生錯誤：${err.message}`);
