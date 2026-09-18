@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar as CalendarIcon, 
+  CalendarDays,
   Clock, 
   MapPin, 
   Plus, 
@@ -15,7 +16,9 @@ import {
   Edit2,
   Trash2,
   UserCheck,
-  AtSign
+  AtSign,
+  Search,
+  Filter
 } from 'lucide-react';
 import { useApp } from '../App';
 import { supabase } from '../supabaseClient';
@@ -23,6 +26,7 @@ import { roleTags as getRoleTags } from '../lib/staffAccess';
 import { isMentioned, getReadMentions, markMentionAsRead, renderContentWithLinksAndMentions } from '../lib/mentionHelper';
 
 // SWR 前端持久化與記憶體雙層快取（保證切換頁面 0 毫秒極速瞬開）
+const CACHE_PREFIX = 'wutps_cal_v3_';
 const calendarMemoryCache = {
   all: null,
   wutai: null,
@@ -36,7 +40,7 @@ function getCachedEvents(type) {
   }
   if (typeof window !== 'undefined') {
     try {
-      const raw = localStorage.getItem('wutps_cal_' + type);
+      const raw = localStorage.getItem(CACHE_PREFIX + type);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -54,7 +58,7 @@ function setCachedEvents(type, data) {
   calendarMemoryCache.timestamp = Date.now();
   if (typeof window !== 'undefined') {
     try {
-      localStorage.setItem('wutps_cal_' + type, JSON.stringify(data));
+      localStorage.setItem(CACHE_PREFIX + type, JSON.stringify(data));
     } catch {}
   }
 }
@@ -66,12 +70,59 @@ function clearAllCalendarCache() {
   calendarMemoryCache.timestamp = 0;
   if (typeof window !== 'undefined') {
     try {
+      localStorage.removeItem(CACHE_PREFIX + 'all');
+      localStorage.removeItem(CACHE_PREFIX + 'wutai');
+      localStorage.removeItem(CACHE_PREFIX + 'ligu');
+      // 同步清理歷史舊版快取
       localStorage.removeItem('wutps_cal_all');
       localStorage.removeItem('wutps_cal_wutai');
       localStorage.removeItem('wutps_cal_ligu');
     } catch {}
   }
 }
+
+// 計算學期週次 (相容 115 學年度第 1、第 2 學期校曆標準)
+const getSchoolWeek = (d) => {
+  if (!d) return null;
+  const dNorm = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  // 115 學年度第 1 學期 (2026/08/31 ~ 2027/01/24)
+  const term1Start = new Date('2026-08-31T00:00:00+08:00');
+  const term1End = new Date('2027-01-24T23:59:59+08:00');
+  if (dNorm >= term1Start && dNorm <= term1End) {
+    const diffDays = Math.floor((dNorm - term1Start) / (1000 * 60 * 60 * 24));
+    const weekNum = Math.floor(diffDays / 7) + 1;
+    return `第 ${weekNum} 週`;
+  }
+
+  // 115 學年度第 2 學期 (2027/02/15 ~ 2027/07/04)
+  const term2Start = new Date('2027-02-15T00:00:00+08:00');
+  const term2End = new Date('2027-07-04T23:59:59+08:00');
+  if (dNorm >= term2Start && dNorm <= term2End) {
+    const diffDays = Math.floor((dNorm - term2Start) / (1000 * 60 * 60 * 24));
+    const weekNum = Math.floor(diffDays / 7) + 1;
+    return `下學期 第 ${weekNum} 週`;
+  }
+
+  return null;
+};
+
+// 計算相對日期狀態 (今天、明天、後天、X天後、已過期)
+const getRelativeDateInfo = (d) => {
+  if (!d) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return { label: '今天', color: 'bg-emerald-500 text-white font-bold' };
+  if (diffDays === 1) return { label: '明天', color: 'bg-amber-500 text-white font-bold' };
+  if (diffDays === 2) return { label: '後天', color: 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300' };
+  if (diffDays > 2 && diffDays <= 7) return { label: `${diffDays}天後`, color: 'bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300' };
+  if (diffDays > 7) return { label: `${diffDays}天後`, color: 'bg-stone-100 text-stone-600 dark:bg-slate-800 dark:text-stone-300' };
+  if (diffDays < 0) return { label: '已過期', color: 'bg-stone-100 text-stone-400 dark:bg-slate-800 dark:text-stone-500 line-through' };
+  return null;
+};
 
 // 學校作息節次表（霧臺國小標準 14 節次）
 const PERIODS = [
@@ -147,6 +198,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
   
   // 點選活動詳情彈窗
   const [selectedEvent, setSelectedEvent] = useState(null);
+
+  // 月份導航與關鍵字搜尋
+  const [selectedMonth, setSelectedMonth] = useState('all'); // 'all' 或 'YYYY-MM' (如 '2026-09', '2026-12')
+  const [searchQuery, setSearchQuery] = useState('');
 
   // 表單資料狀態
   const [formData, setFormData] = useState({
@@ -527,16 +582,20 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     }
   };
 
-  // 格式化日期顯示
+  // 格式化日期顯示（含月份、日期、星期、學期週次、相對時間）
   const formatEventDate = (dateStr) => {
-    if (!dateStr) return { month: '', day: '', weekday: '', full: '' };
+    if (!dateStr) return { month: '', day: '', weekday: '', full: '', schoolWeek: null, relative: null };
     const date = new Date(dateStr);
     const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+    const schoolWeek = getSchoolWeek(date);
+    const relative = getRelativeDateInfo(date);
     return {
       month: `${date.getMonth() + 1}月`,
       day: `${date.getDate()}`,
       weekday: weekdays[date.getDay()],
-      full: `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
+      full: `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`,
+      schoolWeek,
+      relative
     };
   };
 
@@ -550,6 +609,103 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     const endStr = `${end.getHours().toString().padStart(2, '0')}:${end.getMinutes().toString().padStart(2, '0')}`;
     return `${startStr} - ${endStr}`;
   };
+
+  // 當前月份 Key (例如 '2026-09')
+  const currentMonthKey = React.useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+  }, []);
+
+  // 依目前學年度學期與現有活動產生月份選單 (8月 ~ 1月 或 2月 ~ 7月 + 所有有活動的月份)
+  const availableMonths = React.useMemo(() => {
+    // 預設 115 學年度第一學期基礎月份
+    const baseMonthKeys = ['2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01'];
+    
+    // 統計各月份活動數量 (先依校區 filterType 過濾後的 events)
+    const countMap = {};
+    events.forEach(ev => {
+      if (ev.start) {
+        const d = new Date(ev.start);
+        const k = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+        countMap[k] = (countMap[k] || 0) + 1;
+      }
+    });
+
+    const set = new Set([...baseMonthKeys, ...Object.keys(countMap)]);
+    const sorted = Array.from(set).sort();
+
+    return sorted.map(k => {
+      const [y, m] = k.split('-');
+      const numM = parseInt(m, 10);
+      return {
+        key: k,
+        year: y,
+        month: numM,
+        label: `${numM}月`,
+        fullLabel: `${y}年 ${numM}月`,
+        count: countMap[k] || 0,
+        isCurrent: k === currentMonthKey
+      };
+    });
+  }, [events, currentMonthKey]);
+
+  // 過濾與分組活動 (支援校區、月份篩選、關鍵字快速搜尋)
+  const groupedEvents = React.useMemo(() => {
+    let filtered = events;
+
+    // 1. 關鍵字搜尋 (標題、地點、處室、備註、日期)
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      filtered = filtered.filter(ev => {
+        const dateStr = formatEventDate(ev.start).full;
+        return (
+          (ev.title && ev.title.toLowerCase().includes(q)) ||
+          (ev.location && ev.location.toLowerCase().includes(q)) ||
+          (ev.department && ev.department.toLowerCase().includes(q)) ||
+          (ev.description && ev.description.toLowerCase().includes(q)) ||
+          (dateStr && dateStr.includes(q))
+        );
+      });
+    }
+
+    // 2. 月份篩選
+    if (selectedMonth !== 'all') {
+      filtered = filtered.filter(ev => {
+        if (!ev.start) return false;
+        const d = new Date(ev.start);
+        const k = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+        return k === selectedMonth;
+      });
+    }
+
+    // 3. 依月份 (YYYY-MM) 進行群組歸納
+    const groups = {};
+    filtered.forEach(ev => {
+      const d = ev.start ? new Date(ev.start) : new Date();
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const k = `${y}-${m.toString().padStart(2, '0')}`;
+      const label = `${y} 年 ${m} 月`;
+
+      if (!groups[k]) {
+        groups[k] = {
+          key: k,
+          year: y,
+          month: m,
+          label,
+          events: []
+        };
+      }
+      groups[k].events.push(ev);
+    });
+
+    return Object.values(groups).sort((a, b) => a.key.localeCompare(b.key));
+  }, [events, selectedMonth, searchQuery]);
+
+  // 計算目前顯示的活動總數
+  const totalFilteredCount = React.useMemo(() => {
+    return groupedEvents.reduce((acc, g) => acc + g.events.length, 0);
+  }, [groupedEvents]);
 
   return (
     <div className="space-y-5">
@@ -647,6 +803,103 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         </div>
       </div>
 
+      {/* ── 月份選擇器與快速搜尋欄 ── */}
+      <div className="space-y-3 p-3 rounded-2xl bg-stone-50/70 dark:bg-slate-900/50 border border-stone-200/70 dark:border-slate-800">
+        {/* 月份標籤滑動列 */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+          <button
+            onClick={() => setSelectedMonth('all')}
+            className={`px-3.5 py-1.5 rounded-xl font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+              selectedMonth === 'all'
+                ? 'bg-stone-900 dark:bg-white text-white dark:text-stone-900 shadow-xs'
+                : 'bg-white dark:bg-slate-800 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 border border-stone-200 dark:border-slate-700'
+            }`}
+          >
+            <CalendarDays size={13} />
+            <span>全部月份</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+              selectedMonth === 'all'
+                ? 'bg-white/20 text-white dark:bg-stone-900/20 dark:text-stone-900'
+                : 'bg-stone-100 dark:bg-slate-700 text-stone-600 dark:text-stone-300'
+            }`}>
+              {events.length}
+            </span>
+          </button>
+
+          {availableMonths.map((m) => {
+            const isSelected = selectedMonth === m.key;
+            const hasEvents = m.count > 0;
+            return (
+              <button
+                key={m.key}
+                onClick={() => setSelectedMonth(m.key)}
+                className={`px-3.5 py-1.5 rounded-xl font-bold transition-all shrink-0 flex items-center gap-1.5 relative border ${
+                  isSelected
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                    : hasEvents
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border-emerald-200 dark:border-emerald-800'
+                      : 'bg-white dark:bg-slate-800/80 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 border-stone-200 dark:border-slate-700'
+                }`}
+              >
+                <span>{m.label}</span>
+                {m.isCurrent && (
+                  <span className={`text-[9px] px-1 py-0.2 rounded font-semibold ${
+                    isSelected ? 'bg-white/30 text-white' : 'bg-emerald-200/80 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100'
+                  }`}>
+                    本月
+                  </span>
+                )}
+                {hasEvents && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    isSelected ? 'bg-white/25 text-white' : 'bg-emerald-200 dark:bg-emerald-800/80 text-emerald-900 dark:text-emerald-200'
+                  }`}>
+                    {m.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 搜尋欄與活動狀態資訊 */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-stone-200/60 dark:border-slate-800/60">
+          <div className="relative flex-1 max-w-md">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜尋活動、處室、地點、日期或關鍵字..."
+              className="w-full pl-8 pr-7 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-stone-900 dark:text-stone-100 placeholder-stone-400 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 transition"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          <div className="text-xs text-stone-500 dark:text-stone-400 font-medium flex items-center gap-2">
+            {selectedMonth !== 'all' ? (
+              <span className="flex items-center gap-1.5">
+                <span>指定月份：<strong className="text-stone-800 dark:text-stone-200">{availableMonths.find(m => m.key === selectedMonth)?.fullLabel}</strong></span>
+                <button
+                  onClick={() => setSelectedMonth('all')}
+                  className="text-emerald-600 dark:text-emerald-400 hover:underline font-bold"
+                >
+                  (看全部月份)
+                </button>
+              </span>
+            ) : (
+              <span>共 <strong>{totalFilteredCount}</strong> 則活動</span>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* ── 錯誤提示 ── */}
       {errorMsg && (
         <div className="p-3.5 rounded-xl text-xs flex items-center gap-2 bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
@@ -655,101 +908,160 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         </div>
       )}
 
-      {/* ── 行事曆內容檢視區 ── */}
+      {/* ── 行事曆內容檢視區 (依月份清晰群組歸類，徹底杜絕摺疊或遺漏) ── */}
       {isLoading && events.length === 0 ? (
         <div className="py-16 text-center space-y-3">
           <RefreshCw size={24} className="animate-spin mx-auto text-emerald-600" />
           <p className="text-xs text-stone-400 dark:text-stone-500 font-medium">連線 Google 行事曆同步中...</p>
         </div>
-      ) : events.length === 0 ? (
-        <div className="py-16 text-center rounded-2xl border border-dashed border-stone-200 dark:border-slate-800 bg-stone-50/50 dark:bg-slate-900/30">
-          <CalendarIcon size={36} className="mx-auto text-stone-300 dark:text-slate-700 mb-2" />
-          <p className="text-sm font-bold text-stone-600 dark:text-stone-400">目前尚無近期排定之活動</p>
-          <p className="text-xs text-stone-400 dark:text-stone-500 mt-1">行政同仁點擊右上角「＋ 新增活動」即可即時同步至全校日曆</p>
+      ) : totalFilteredCount === 0 ? (
+        <div className="py-16 text-center rounded-2xl border border-dashed border-stone-200 dark:border-slate-800 bg-stone-50/50 dark:bg-slate-900/30 space-y-2">
+          <CalendarIcon size={36} className="mx-auto text-stone-300 dark:text-slate-700 mb-1" />
+          <p className="text-sm font-bold text-stone-600 dark:text-stone-400">
+            {searchQuery
+              ? `找不到符合「${searchQuery}」的活動`
+              : selectedMonth !== 'all'
+                ? `${availableMonths.find(m => m.key === selectedMonth)?.fullLabel || ''} 尚無排定活動`
+                : '目前尚無近期排定之活動'}
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            {selectedMonth !== 'all' && (
+              <button
+                onClick={() => setSelectedMonth('all')}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300 hover:bg-stone-50"
+              >
+                查看全部月份
+              </button>
+            )}
+            {canManage && (
+              <button
+                onClick={handleOpenCreate}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs"
+              >
+                ＋ 新增此月份活動
+              </button>
+            )}
+          </div>
         </div>
       ) : (
-        <div className="space-y-3">
-          {events.map((ev) => {
-            const badgeStyle = getCalendarBadge(ev.calendarType);
-            const dateInfo = formatEventDate(ev.start);
-            const timeStr = formatEventTime(ev);
-            const canMod = canModifyEvent(ev);
-            const mentionKey = `calendar:${ev.id}`;
-            const isMeMentioned = isMentioned(`${ev.title} ${ev.description || ''}`, currentUserName);
-            const isUnread = isMeMentioned && !readSet.has(mentionKey);
-
-            return (
-              <motion.div
-                key={ev.id}
-                layout
-                onClick={() => {
-                  setSelectedEvent(ev);
-                  if (isMeMentioned && !readSet.has(mentionKey)) {
-                    markMentionAsRead(mentionKey);
-                  }
-                }}
-                className={`p-4 rounded-2xl border bg-white dark:bg-slate-900 shadow-xs hover:shadow-md transition-all cursor-pointer border-l-4 ${badgeStyle.border} border-stone-200 dark:border-slate-800 active:scale-[0.99]`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3.5 min-w-0">
-                    {/* 左側日期卡塊 */}
-                    <div className="w-12 h-12 rounded-xl bg-stone-100 dark:bg-slate-800 flex flex-col items-center justify-center shrink-0 border border-stone-200/60 dark:border-slate-700">
-                      <span className="text-[10px] font-bold text-stone-500 dark:text-stone-400">{dateInfo.month}</span>
-                      <span className="text-base font-black text-stone-900 dark:text-stone-100 leading-none">{dateInfo.day}</span>
-                    </div>
-
-                    {/* 活動主體內容 */}
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${badgeStyle.badge}`}>
-                          {badgeStyle.label}
-                        </span>
-                        <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100 truncate">
-                          {ev.title}
-                        </h4>
-                        {isMeMentioned && (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
-                            isUnread
-                              ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800 animate-pulse'
-                              : 'bg-stone-100 text-stone-500 border-stone-200 dark:bg-slate-800 dark:text-stone-400 dark:border-slate-700'
-                          }`}>
-                            {isUnread ? '提及您 (未讀)' : '提及您 (已讀)'}
-                          </span>
-                        )}
-                        {canMod && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-stone-100 dark:bg-slate-800 text-stone-500 dark:text-stone-400 flex items-center gap-1">
-                            <UserCheck size={10} />
-                            可編修
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-3 text-xs text-stone-500 dark:text-stone-400 flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <CalendarIcon size={12} />
-                          {dateInfo.weekday}
-                        </span>
-                        {timeStr && (
-                          <span className="flex items-center gap-1">
-                            <Clock size={12} />
-                            {timeStr}
-                          </span>
-                        )}
-                        {ev.location && (
-                          <span className="flex items-center gap-1 truncate">
-                            <MapPin size={12} />
-                            {ev.location}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <ChevronRight size={16} className="text-stone-400 shrink-0 mt-2" />
+        <div className="space-y-6">
+          {groupedEvents.map((group) => (
+            <div key={group.key} className="space-y-3">
+              {/* 月份分組清晰標題列 */}
+              <div className="flex items-center justify-between pb-1.5 border-b border-stone-200/80 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+                  <h3 className="text-xs font-black tracking-wide text-stone-800 dark:text-stone-200">
+                    {group.label}
+                  </h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-400 border border-stone-200/60 dark:border-slate-700">
+                    {group.events.length} 則活動
+                  </span>
                 </div>
-              </motion.div>
-            );
-          })}
+              </div>
+
+              {/* 活動卡片清單 */}
+              <div className="space-y-3">
+                {group.events.map((ev) => {
+                  const badgeStyle = getCalendarBadge(ev.calendarType);
+                  const dateInfo = formatEventDate(ev.start);
+                  const timeStr = formatEventTime(ev);
+                  const canMod = canModifyEvent(ev);
+                  const mentionKey = `calendar:${ev.id}`;
+                  const isMeMentioned = isMentioned(`${ev.title} ${ev.description || ''}`, currentUserName);
+                  const isUnread = isMeMentioned && !readSet.has(mentionKey);
+
+                  return (
+                    <motion.div
+                      key={ev.id}
+                      layout
+                      onClick={() => {
+                        setSelectedEvent(ev);
+                        if (isMeMentioned && !readSet.has(mentionKey)) {
+                          markMentionAsRead(mentionKey);
+                        }
+                      }}
+                      className={`p-4 rounded-2xl border bg-white dark:bg-slate-900 shadow-xs hover:shadow-md transition-all cursor-pointer border-l-4 ${badgeStyle.border} border-stone-200 dark:border-slate-800 active:scale-[0.99]`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3.5 min-w-0">
+                          {/* 左側日期卡塊 (含月份、日期、學期週次) */}
+                          <div className="w-14 h-14 rounded-xl bg-stone-100 dark:bg-slate-800 flex flex-col items-center justify-center shrink-0 border border-stone-200/60 dark:border-slate-700">
+                            <span className="text-[10px] font-bold text-stone-500 dark:text-stone-400 leading-none mb-0.5">{dateInfo.month}</span>
+                            <span className="text-lg font-black text-stone-900 dark:text-stone-100 leading-none">{dateInfo.day}</span>
+                            {dateInfo.schoolWeek && (
+                              <span className="text-[8px] font-bold text-emerald-600 dark:text-emerald-400 leading-none mt-1">
+                                {dateInfo.schoolWeek}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* 活動主體內容 */}
+                          <div className="space-y-1.5 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${badgeStyle.badge}`}>
+                                {badgeStyle.label}
+                              </span>
+                              <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100 truncate">
+                                {ev.title}
+                              </h4>
+                              {dateInfo.relative && (
+                                <span className={`text-[10px] px-2 py-0.5 rounded-md ${dateInfo.relative.color}`}>
+                                  {dateInfo.relative.label}
+                                </span>
+                              )}
+                              {isMeMentioned && (
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                                  isUnread
+                                    ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800 animate-pulse'
+                                    : 'bg-stone-100 text-stone-500 border-stone-200 dark:bg-slate-800 dark:text-stone-400 dark:border-slate-700'
+                                }`}>
+                                  {isUnread ? '提及您 (未讀)' : '提及您 (已讀)'}
+                                </span>
+                              )}
+                              {canMod && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-stone-100 dark:bg-slate-800 text-stone-500 dark:text-stone-400 flex items-center gap-1">
+                                  <UserCheck size={10} />
+                                  可編修
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-3 text-xs text-stone-500 dark:text-stone-400 flex-wrap">
+                              <span className="flex items-center gap-1 font-medium">
+                                <CalendarIcon size={12} />
+                                {dateInfo.weekday}
+                                {dateInfo.schoolWeek && <span className="text-stone-400 dark:text-stone-500 font-normal">({dateInfo.schoolWeek})</span>}
+                              </span>
+                              {timeStr && (
+                                <span className="flex items-center gap-1">
+                                  <Clock size={12} />
+                                  {timeStr}
+                                </span>
+                              )}
+                              {ev.location && (
+                                <span className="flex items-center gap-1 truncate">
+                                  <MapPin size={12} />
+                                  {ev.location}
+                                </span>
+                              )}
+                              {ev.department && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-400 font-medium">
+                                  {ev.department}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <ChevronRight size={16} className="text-stone-400 shrink-0 mt-2" />
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -781,10 +1093,24 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
               </div>
 
               <div className="space-y-2 text-xs text-stone-600 dark:text-stone-300 border-y border-stone-100 dark:border-slate-800/80 py-3">
-                <p className="flex items-center gap-2">
-                  <CalendarIcon size={14} className="text-stone-400 shrink-0" />
-                  <span className="font-semibold">{formatEventDate(selectedEvent.start).full} ({formatEventDate(selectedEvent.start).weekday})</span>
-                </p>
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  <p className="flex items-center gap-2">
+                    <CalendarIcon size={14} className="text-stone-400 shrink-0" />
+                    <span className="font-semibold">
+                      {formatEventDate(selectedEvent.start).full} ({formatEventDate(selectedEvent.start).weekday})
+                      {formatEventDate(selectedEvent.start).schoolWeek && (
+                        <span className="ml-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
+                          · {formatEventDate(selectedEvent.start).schoolWeek}
+                        </span>
+                      )}
+                    </span>
+                  </p>
+                  {formatEventDate(selectedEvent.start).relative && (
+                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${formatEventDate(selectedEvent.start).relative.color}`}>
+                      {formatEventDate(selectedEvent.start).relative.label}
+                    </span>
+                  )}
+                </div>
                 <p className="flex items-center gap-2">
                   <Clock size={14} className="text-stone-400 shrink-0" />
                   <span>{formatEventTime(selectedEvent)}</span>

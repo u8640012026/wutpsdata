@@ -133,7 +133,25 @@ export default async function handler(req, res) {
       let syncedCount = 0;
       for (const ev of gasEvents) {
         try {
-          const { error } = await supabase.from('calendar_events').upsert({
+          let { data: existing } = await supabase
+            .from('calendar_events')
+            .select('id')
+            .eq('gcal_event_id', ev.id)
+            .maybeSingle();
+
+          if (!existing && ev.title && ev.start) {
+            const { data: matchByTime } = await supabase
+              .from('calendar_events')
+              .select('id')
+              .eq('title', ev.title)
+              .eq('start_time', ev.start)
+              .maybeSingle();
+            if (matchByTime) {
+              existing = matchByTime;
+            }
+          }
+
+          const eventPayload = {
             gcal_event_id: ev.id,
             calendar_type: ev.calendarType || 'all',
             title: ev.title || '未命名活動',
@@ -143,9 +161,22 @@ export default async function handler(req, res) {
             is_all_day: Boolean(ev.isAllDay),
             description: ev.description || '',
             updated_at: new Date().toISOString()
-          }, { onConflict: 'gcal_event_id' });
+          };
 
-          if (!error) syncedCount++;
+          if (existing) {
+            const { error: updateErr } = await supabase
+              .from('calendar_events')
+              .update(eventPayload)
+              .eq('id', existing.id);
+            if (!updateErr) syncedCount++;
+            else console.error('Event update error during sync:', updateErr.message);
+          } else {
+            const { error: insertErr } = await supabase
+              .from('calendar_events')
+              .insert([eventPayload]);
+            if (!insertErr) syncedCount++;
+            else console.error('Event insert error during sync:', insertErr.message);
+          }
         } catch (syncErr) {
           console.error('Event sync error:', syncErr.message);
         }
