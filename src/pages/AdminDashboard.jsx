@@ -11,12 +11,30 @@ import StudentList from '../components/StudentList';
 import BulletinBoard from '../components/BulletinBoard';
 import TimetableViewer from '../components/TimetableViewer';
 import SchoolBrain from '../components/SchoolBrain';
-import { Calendar, GraduationCap, Users, Database, ShieldCheck, ArrowLeft, UploadCloud, CheckCircle2, AlertCircle, ChevronRight, Megaphone, Layers, Download, HardDrive } from 'lucide-react';
+import { Calendar, GraduationCap, Users, Database, ShieldCheck, ArrowLeft, UploadCloud, CheckCircle2, AlertCircle, ChevronRight, Megaphone, Layers, Download, HardDrive, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [currentView, setCurrentView] = useState('menu'); // 'menu', 'calendar', 'students', 'timetable', 'superadmin'
   const [superadminTab, setSuperadminTab] = useState('whitelist'); // 'whitelist', 'import', 'backup'
   const [isCalendarFullScreen, setIsCalendarFullScreen] = useState(false);
+  const [isBulletinCollapsed, setIsBulletinCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('wutps_bulletin_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleBulletinCollapsed = () => {
+    setIsBulletinCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('wutps_bulletin_collapsed', String(next));
+      } catch (_) {}
+      return next;
+    });
+  };
+
   const { isDark, t, staffData, liffProfile, setHideBottomNav, adminBadgeCount, setAdminBadgeCount } = useApp();
 
   // 進入第二層子頁面時自動隱藏底部導覽列，放大手機可視範圍並防遮擋
@@ -585,22 +603,52 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 區塊 1：公告專區 (綠色系) */}
-      <section className={`rounded-2xl p-4 sm:p-5 border transition-all shadow-sm ${
+      {/* 區塊 1：公告專區 (綠色系，支援一鍵收合，方便手機端快速觸達下方功能) */}
+      <section className={`rounded-2xl border transition-all shadow-sm ${
         isDark 
           ? 'bg-emerald-950/20 border-emerald-800/40' 
           : 'bg-emerald-50/70 border-emerald-200/80'
-      }`}>
-        <div className="flex items-center gap-2.5 mb-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center shadow-sm flex-shrink-0">
-            <Megaphone size={16} />
+      } ${isBulletinCollapsed ? 'p-3 sm:p-4' : 'p-4 sm:p-5'}`}>
+        <div 
+          onClick={toggleBulletinCollapsed}
+          className="flex items-center justify-between gap-2.5 cursor-pointer select-none group"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <Megaphone size={16} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className={`text-base font-extrabold ${isDark ? 'text-emerald-200' : 'text-emerald-900'}`}>全校公告專區</h3>
+                {isBulletinCollapsed && (
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-200 shrink-0">
+                    已收合 (點擊展開)
+                  </span>
+                )}
+              </div>
+              <p className={`text-xs truncate ${isDark ? 'text-emerald-400/90' : 'text-emerald-700/80'}`}>
+                {isBulletinCollapsed ? '點擊此處展開查看公告內容與發布' : '即時校園通告與重要事項討論'}
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className={`text-base font-extrabold ${isDark ? 'text-emerald-200' : 'text-emerald-900'}`}>全校公告專區</h3>
-            <p className={`text-xs ${isDark ? 'text-emerald-400/90' : 'text-emerald-700/80'}`}>即時校園通告與重要事項討論</p>
-          </div>
+          <button 
+            type="button"
+            className={`p-1.5 rounded-xl border transition shrink-0 ${
+              isDark 
+                ? 'bg-emerald-900/60 border-emerald-700/60 text-emerald-200 group-hover:bg-emerald-800/80' 
+                : 'bg-emerald-100 border-emerald-200 text-emerald-800 group-hover:bg-emerald-200'
+            }`}
+            title={isBulletinCollapsed ? '展開公告' : '收合公告'}
+          >
+            {isBulletinCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+          </button>
         </div>
-        <BulletinBoard />
+
+        {!isBulletinCollapsed && (
+          <div className="mt-4 pt-3 border-t border-emerald-200/60 dark:border-emerald-800/40">
+            <BulletinBoard />
+          </div>
+        )}
       </section>
 
       {/* 區塊 2、3、4：行事曆 (黃色系)、學生總覽 (藍色系)、全校總課表 (青綠系) */}

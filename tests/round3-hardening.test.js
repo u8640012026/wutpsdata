@@ -545,4 +545,104 @@ test('api/calendar DELETE returns 500 when persisting failed_delete state fails'
   assert.match(body.message, /儲存待重試刪除紀錄失敗/);
 });
 
+test('api/brain POST updates existing document instead of inserting duplicate when same dept_id and file_name uploaded', async t => {
+  const originalFetch = globalThis.fetch;
+  let methodUsed = null;
+  let updatedPayload = null;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const address = new URL(String(url));
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'teacher_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'brain_documents') {
+      if (init.method === 'PATCH') {
+        methodUsed = 'PATCH';
+        updatedPayload = JSON.parse(init.body);
+        return json({ id: 'doc_existing', ...updatedPayload });
+      }
+      if (init.method === 'POST') {
+        methodUsed = 'POST';
+        return json({ id: 'doc_new' });
+      }
+      // 檢索既有文件：模擬同處室已存在同名檔案
+      return json({ id: 'doc_existing', dept_id: 'academic', file_name: '規章.pdf' });
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/brain.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'teacher_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        dept_id: 'academic',
+        title: '規章.pdf',
+        file_name: '規章.pdf',
+        extracted_text: '最新修訂版規章全文'
+      }
+    },
+    {
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; }
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  assert.equal(methodUsed, 'PATCH');
+  assert.equal(body.isUpdated, true);
+  assert.equal(updatedPayload.extracted_text, '最新修訂版規章全文');
+});
+
+test('api/brain POST inserts new document when dept_id and file_name is unique', async t => {
+  const originalFetch = globalThis.fetch;
+  let methodUsed = null;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const address = new URL(String(url));
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'teacher_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'brain_documents') {
+      if (init.method === 'POST') {
+        methodUsed = 'POST';
+        return json({ id: 'doc_brand_new', file_name: '全新規章.pdf' });
+      }
+      // 查無同名檔案
+      return json(null);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/brain.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'teacher_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        dept_id: 'academic',
+        title: '全新規章.pdf',
+        file_name: '全新規章.pdf',
+        extracted_text: '全新規章內容'
+      }
+    },
+    {
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; }
+    }
+  );
+
+  assert.equal(statusCode, 201);
+  assert.equal(methodUsed, 'POST');
+  assert.equal(body.id, 'doc_brand_new');
+});
+
+
 

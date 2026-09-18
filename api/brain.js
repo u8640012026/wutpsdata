@@ -69,10 +69,51 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: '缺少標題或處室資訊' });
       }
 
+      const targetFileName = (file_name || title).trim();
+      const cleanTitle = title.trim();
+
+      // 檢查同處室是否已存在相同檔名之文件，若存在則覆蓋更新，避免同檔案重複上傳浪費 AI Token
+      const { data: existingDoc, error: findErr } = await supabase
+        .from('brain_documents')
+        .select('id')
+        .eq('dept_id', dept_id)
+        .eq('file_name', targetFileName)
+        .maybeSingle();
+
+      if (findErr) {
+        console.warn('brain_documents find duplicate check note:', findErr.message);
+      }
+
+      if (existingDoc?.id) {
+        // 覆蓋更新既有紀錄
+        const { data, error } = await supabase
+          .from('brain_documents')
+          .update({
+            title: cleanTitle,
+            file_name: targetFileName,
+            file_size: file_size || '未知',
+            uploaded_by: uploaded_by || '校務同仁',
+            uploaded_by_uid: line_uid,
+            extracted_text: extracted_text || '',
+            summary: summary || '',
+            created_at: new Date().toISOString()
+          })
+          .eq('id', existingDoc.id)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('brain_documents update error:', error.message);
+          return res.status(500).json({ error: '知識庫文件更新失敗：' + error.message });
+        }
+
+        return res.status(200).json({ ...data, isUpdated: true });
+      }
+
       const newRecord = {
         dept_id,
-        title: title.trim(),
-        file_name: (file_name || title).trim(),
+        title: cleanTitle,
+        file_name: targetFileName,
         file_size: file_size || '未知',
         uploaded_by: uploaded_by || '校務同仁',
         uploaded_by_uid: line_uid,

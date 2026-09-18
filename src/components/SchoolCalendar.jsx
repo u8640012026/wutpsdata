@@ -566,39 +566,42 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     <div className="space-y-5">
       {/* ── 頂部控制欄：過濾膠囊 + 動作按鈕 ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        {/* 校區過濾膠囊 */}
-        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-stone-100 dark:bg-slate-800/80 border border-stone-200 dark:border-slate-700 w-fit">
+        {/* 校區過濾膠囊（手機版防折行緊湊化） */}
+        <div className="flex items-center gap-1 sm:gap-1.5 p-1 rounded-2xl bg-stone-100 dark:bg-slate-800/80 border border-stone-200 dark:border-slate-700 w-fit overflow-x-auto max-w-full flex-nowrap shrink-0 scrollbar-none">
           <button
             onClick={() => setFilterType('all')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
               filterType === 'all'
                 ? 'bg-white dark:bg-slate-900 text-stone-900 dark:text-stone-100 shadow-xs'
                 : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
             }`}
           >
-            全部顯示
+            <span className="hidden sm:inline">全部顯示</span>
+            <span className="sm:hidden">全校</span>
           </button>
           <button
             onClick={() => setFilterType('wutai')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            className={`px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 sm:gap-1.5 shrink-0 ${
               filterType === 'wutai'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
             }`}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            霧臺校區 (全+霧)
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+            <span className="hidden sm:inline">霧臺校區 (全+霧)</span>
+            <span className="sm:hidden">霧臺</span>
           </button>
           <button
             onClick={() => setFilterType('ligu')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            className={`px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 sm:gap-1.5 shrink-0 ${
               filterType === 'ligu'
                 ? 'bg-rose-600 text-white shadow-xs'
                 : 'text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40'
             }`}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
-            勵古百合 (全+勵)
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0"></span>
+            <span className="hidden sm:inline">勵古百合 (全+勵)</span>
+            <span className="sm:hidden">勵古</span>
           </button>
         </div>
 

@@ -198,27 +198,27 @@ export default function StudentList() {
     <div className={containerStyle}>
       
       {/* 頂部標題列與返回按鈕 */}
-      <div className="flex justify-between items-center p-3.5 border-b border-stone-200 dark:border-slate-800 flex-wrap gap-2">
-        <div className="flex items-center gap-3">
+      <div className="flex justify-between items-center p-2 sm:p-3.5 border-b border-stone-200 dark:border-slate-800 gap-2 flex-wrap sm:flex-nowrap">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           {(isAdmin || !isHomeroom) && (
             <button 
               onClick={() => setIsViewing(false)}
-              className={`p-2 rounded-xl transition shadow-sm ${isDark ? 'bg-slate-800 text-stone-300 hover:bg-slate-700' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
+              className={`p-1.5 sm:p-2 rounded-xl transition shadow-sm shrink-0 ${isDark ? 'bg-slate-800 text-stone-300 hover:bg-slate-700' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
             >
-              <ArrowLeft size={16} />
+              <ArrowLeft size={15} />
             </button>
           )}
-          <div className="flex items-center gap-2">
-            <GraduationCap size={20} className="text-emerald-600 dark:text-emerald-400" />
-            <h3 className={`text-lg font-extrabold ${textColor}`}>{titleText}</h3>
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 truncate">
+            <GraduationCap size={18} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <h3 className={`text-base sm:text-lg font-extrabold truncate ${textColor}`}>{titleText}</h3>
           </div>
         </div>
         
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {/* 全螢幕切換按鈕 */}
           <button 
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition-colors ${
+            className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl border transition-colors ${
               isDark 
                 ? 'bg-slate-800 text-sky-400 border-slate-700 hover:bg-slate-700' 
                 : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
@@ -227,46 +227,49 @@ export default function StudentList() {
             {isFullscreen ? (
               <>
                 <Minimize2 size={13} />
-                縮小還原
+                <span className="hidden sm:inline">縮小還原</span>
+                <span className="sm:hidden">還原</span>
               </>
             ) : (
               <>
                 <Maximize2 size={13} />
-                全螢幕展開
+                <span className="hidden sm:inline">全螢幕展開</span>
+                <span className="sm:hidden">全螢幕</span>
               </>
             )}
           </button>
 
-          <label className={`flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors ${
+          <label className={`flex items-center gap-1.5 cursor-pointer px-2 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors ${
             isDark ? 'bg-slate-800 border-slate-700 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-700'
           }`}>
             <input 
               type="checkbox" 
               checked={showHomeschooled} 
               onChange={(e) => setShowHomeschooled(e.target.checked)} 
-              className="w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
+              className="w-3.5 h-3.5 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
             />
-            <span>顯示在家自學生</span>
+            <span className="hidden sm:inline">顯示在家自學生</span>
+            <span className="sm:hidden">自學生</span>
           </label>
-          <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-3 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800 whitespace-nowrap">
-            共 {filteredStudents.length} 人
+          <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2 sm:px-3 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800 whitespace-nowrap">
+            {filteredStudents.length} 人
           </span>
         </div>
       </div>
 
       {/* Excel-like Data Table 區塊 */}
-      {/* 調整為 text-base 讓手機版字體更大更清晰 */}
+      {/* 調整為手機版高密度與平板/電腦舒適間距 */}
       <div className="flex-1 overflow-auto relative scrollbar-hide">
-        <table className="w-full text-base text-left whitespace-nowrap">
+        <table className="w-full text-sm sm:text-base text-left whitespace-nowrap">
           <thead className={`sticky top-0 z-20 ${tableHeaderBg} shadow-sm`}>
             <tr>
               {/* 凍結的左側第一欄 */}
-              <th className={`sticky left-0 z-30 p-3 font-extrabold text-emerald-900 dark:text-emerald-200 border-r border-b ${borderColor} ${tableHeaderBg}`}>
+              <th className={`sticky left-0 z-30 px-2.5 py-2 sm:p-3 font-extrabold text-emerald-900 dark:text-emerald-200 border-r border-b ${borderColor} ${tableHeaderBg} text-xs sm:text-sm`}>
                 班級 - 座號 - 姓名
               </th>
               {/* 動態展開的資料欄位 */}
               {currentCols.map(col => (
-                <th key={col} className={`p-3 font-bold text-stone-800 dark:text-stone-200 border-r border-b ${borderColor}`}>
+                <th key={col} className={`px-2.5 py-2 sm:p-3 font-bold text-stone-800 dark:text-stone-200 border-r border-b ${borderColor} text-xs sm:text-sm`}>
                   {col}
                 </th>
               ))}
@@ -287,17 +290,17 @@ export default function StudentList() {
 
               return (
                 <tr key={student.student_id} className={`border-b ${borderColor} ${rowBg} hover:bg-amber-50/60 dark:hover:bg-slate-800 transition-colors`}>
-                  {/* 凍結的左側儲存格 */}
-                  <td className={`sticky left-0 z-10 p-3 border-r ${borderColor} ${stickyLeftBg} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-stone-400 dark:text-stone-400 w-8">{student.grade}{student.class_name}</span>
-                      <span className="w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center text-sm font-bold">
+                  {/* 凍結的左側儲存格（手機版特化緊縮欄距，釋放右側可視空間；平板電腦維持充裕寬度） */}
+                  <td className={`sticky left-0 z-10 px-2 py-1.5 sm:p-3 border-r ${borderColor} ${stickyLeftBg} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <span className="text-xs sm:text-sm font-bold text-stone-400 dark:text-stone-400 w-7 sm:w-8 shrink-0">{student.grade}{student.class_name}</span>
+                      <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center text-xs sm:text-sm font-bold shrink-0">
                         {student.seat_number}
                       </span>
-                      <span className={`font-bold ${textColor} w-20 truncate`}>{student.name}</span>
+                      <span className={`font-bold ${textColor} text-xs sm:text-base w-16 sm:w-20 truncate shrink-0`}>{student.name}</span>
                       {/* 若為自學生，加上小標籤 */}
                       {[student.enroll_type, ...Object.values(details)].some(v => String(v||'').includes('自學') || String(v||'').includes('在家')) && (
-                        <span className="text-[11px] bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-300 px-1.5 py-0.5 rounded font-bold ml-1">自學</span>
+                        <span className="text-[10px] sm:text-[11px] bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-300 px-1 py-0.5 rounded font-bold ml-0.5 shrink-0">自學</span>
                       )}
                     </div>
                   </td>
@@ -312,7 +315,7 @@ export default function StudentList() {
                     if (col === '生日') val = formatExcelDate(val);
 
                     return (
-                      <td key={col} className={`p-3 border-r ${borderColor} text-stone-700 dark:text-stone-200 max-w-[250px] truncate`}>
+                      <td key={col} className={`px-2.5 py-1.5 sm:p-3 border-r ${borderColor} text-stone-700 dark:text-stone-200 text-xs sm:text-sm max-w-[200px] sm:max-w-[250px] truncate`}>
                         {val || '-'}
                       </td>
                     );

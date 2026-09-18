@@ -66,15 +66,8 @@ export default function SchoolBrain() {
   const { isDark, staffData, liffProfile } = useApp();
   const [selectedDeptId, setSelectedDeptId] = useState('academic');
   
-  // 徹底移除任何測試假資料，預設為乾淨空陣列，優先從本機儲存與後端同步
-  const [documents, setDocuments] = useState(() => {
-    try {
-      const cached = localStorage.getItem('wutps_real_brain_docs');
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
+  // 以 Supabase 雲端資料庫為唯一真實來源 (Single Source of Truth)，清除舊版殘留本機快取
+  const [documents, setDocuments] = useState([]);
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -87,10 +80,14 @@ export default function SchoolBrain() {
 
   const activeDept = DEPARTMENTS.find(d => d.id === selectedDeptId) || DEPARTMENTS[0];
 
-  // 進入時自伺服器同步真實上傳的文件
+  // 進入時自伺服器同步真實上傳的文件（當 LIFF 身分就緒時自動拉取最新大腦庫）
   useEffect(() => {
+    // 清除過往測試時電腦端可能殘留的舊本機快照
+    try {
+      localStorage.removeItem('wutps_real_brain_docs');
+    } catch (_) {}
     fetchServerDocuments();
-  }, []);
+  }, [liffProfile?.userId, staffData?.line_uid]);
 
   const fetchServerDocuments = async () => {
     try {
@@ -100,27 +97,20 @@ export default function SchoolBrain() {
       });
       if (res.ok) {
         const serverDocs = await res.json();
-        if (Array.isArray(serverDocs) && serverDocs.length > 0) {
-          // 合併本機與雲端資料
-          setDocuments(prev => {
-            const map = new Map();
-            prev.forEach(d => map.set(d.id || d.title, d));
-            serverDocs.forEach(d => map.set(d.id || d.title, {
-              id: d.id,
-              deptId: d.dept_id,
-              title: d.title,
-              fileName: d.file_name || d.title,
-              fileSize: d.file_size || '',
-              uploadedBy: d.uploaded_by || '',
-              uploadedAt: d.created_at ? d.created_at.split('T')[0] : '',
-              status: 'indexed',
-              extractedText: d.extracted_text || '',
-              extractedSummary: d.summary || (d.extracted_text ? d.extracted_text.slice(0, 200) + '...' : '已解析入庫')
-            }));
-            const merged = Array.from(map.values());
-            localStorage.setItem('wutps_real_brain_docs', JSON.stringify(merged));
-            return merged;
-          });
+        if (Array.isArray(serverDocs)) {
+          const mapped = serverDocs.map(d => ({
+            id: d.id,
+            deptId: d.dept_id,
+            title: d.title,
+            fileName: d.file_name || d.title,
+            fileSize: d.file_size || '',
+            uploadedBy: d.uploaded_by || '',
+            uploadedAt: d.created_at ? d.created_at.split('T')[0] : '',
+            status: 'indexed',
+            extractedText: d.extracted_text || '',
+            extractedSummary: d.summary || (d.extracted_text ? d.extracted_text.slice(0, 200) + '...' : '已解析入庫')
+          }));
+          setDocuments(mapped);
         }
       }
     } catch (err) {
@@ -232,12 +222,8 @@ export default function SchoolBrain() {
         newDoc.id = savedData.id;
       }
 
-      // 3. 更新前端狀態與本機持久化快照
-      setDocuments(prev => {
-        const updated = [newDoc, ...prev];
-        localStorage.setItem('wutps_real_brain_docs', JSON.stringify(updated));
-        return updated;
-      });
+      // 3. 自伺服器同步最新大腦文件清單
+      await fetchServerDocuments();
 
       setUploadProgress(100);
       setTimeout(() => {
@@ -277,11 +263,7 @@ export default function SchoolBrain() {
           throw new Error(errJson.error || '刪除失敗');
         }
 
-        setDocuments(prev => {
-          const filtered = prev.filter(d => (d.id || d.title) !== docId && d.title !== title);
-          localStorage.setItem('wutps_real_brain_docs', JSON.stringify(filtered));
-          return filtered;
-        });
+        await fetchServerDocuments();
       } catch (err) {
         alert('文件刪除失敗: ' + err.message);
       }
