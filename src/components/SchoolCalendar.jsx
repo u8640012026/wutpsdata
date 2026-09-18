@@ -99,6 +99,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
   const [editingEventId, setEditingEventId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   // 點選活動詳情彈窗
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -251,6 +252,33 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     }
   };
 
+  // 從 Google 日曆單向/雙向拉取最新行程至系統
+  const handleSyncFromGoogle = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync_from_gas' })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        alert(data.message || 'Google 日曆同步完成');
+        calendarMemoryCache.all = null;
+        calendarMemoryCache.wutai = null;
+        calendarMemoryCache.ligu = null;
+        await loadEvents(false);
+      } else {
+        alert(data.message || '同步失敗');
+      }
+    } catch (err) {
+      alert(`同步發生例外：${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // 日期快速帶入
   const setQuickDate = (type) => {
     const d = new Date();
@@ -384,7 +412,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
           setIsDrawerOpen(false);
           setEditingEventId(null);
           loadEvents(false);
-        }, 1200);
+        }, 400);
       } else {
         alert(resData.message || '操作失敗，請稍後重試');
       }
@@ -502,10 +530,27 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
             }}
             disabled={isLoading}
             className="p-2 rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-slate-800 transition shadow-xs"
-            title="從 Google 日曆重新整理"
+            title="重新整理行事曆"
           >
             <RefreshCw size={15} className={isLoading ? 'animate-spin' : ''} />
           </button>
+
+          {/* 與 Google 日曆雙向同步按鈕 (管理者專用) */}
+          {canManage && (
+            <button
+              onClick={handleSyncFromGoogle}
+              disabled={isSyncing}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition shadow-xs ${
+                isDark 
+                  ? 'border-slate-800 bg-slate-900 text-stone-300 hover:bg-slate-800' 
+                  : 'border-stone-200 bg-white text-stone-700 hover:bg-stone-50'
+              }`}
+              title="將 Google 日曆最新活動雙向同步至系統"
+            >
+              <RefreshCw size={13} className={isSyncing ? 'animate-spin text-emerald-500' : ''} />
+              <span>{isSyncing ? '同步中...' : '同步 Google'}</span>
+            </button>
+          )}
 
           {/* 全螢幕切換按鈕 */}
           {onToggleFullScreen && (

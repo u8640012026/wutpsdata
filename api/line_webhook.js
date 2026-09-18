@@ -279,6 +279,52 @@ async function getRecentCalendarEvents() {
   if (cachedCalendarData && (now - lastCalendarFetchTime < 5 * 60 * 1000)) {
     return cachedCalendarData;
   }
+
+  // 1. 優先從 Supabase calendar_events 讀取 (30ms 極速回應，大幅消減 LINE 等待時間)
+  try {
+    const { data: dbEvents, error: dbError } = await supabase
+      .from('calendar_events')
+      .select('*')
+      .order('start_time', { ascending: true });
+
+    const validEvents = (dbEvents || []).filter(ev => ev && ev.start_time && Number.isFinite(calendarDate(ev.start_time).getTime()));
+
+    if (!dbError && validEvents.length > 0) {
+      const formatted = validEvents.map(ev => {
+        const start = calendarDate(ev.start_time);
+        const end = calendarDate(ev.end_time || ev.start_time);
+        const isAllDay = ev.is_all_day === true || /^\d{4}-\d{2}-\d{2}$/.test(ev.start_time);
+        let schedule = formatSchoolDate(start, !isAllDay);
+        if (Number.isFinite(end.getTime()) && end > start) {
+          const displayEnd = isAllDay ? new Date(end.getTime() - 1) : end;
+          if (!isAllDay || formatSchoolDate(displayEnd) !== formatSchoolDate(start)) {
+            schedule += ` 至 ${formatSchoolDate(displayEnd, !isAllDay)}`;
+          }
+        }
+        if (isAllDay) schedule += '（全天）';
+        const calName = CALENDAR_NAMES[ev.calendar_type] || '全校共通';
+        let line = `- 【${schedule}】[${calName}] ${ev.title || '未命名活動'}`;
+        if (ev.location) line += ` 地點：${ev.location}`;
+        if (ev.description) line += ` 詳情：${String(ev.description).replace(/\n/g, ' ')}`;
+        return line;
+      }).join('\n');
+
+      const context = [
+        `資料查詢時間：${formatSchoolDate(new Date(now), true)}（Asia/Taipei）。最多快取 5 分鐘。`,
+        `成功讀取來源：全校共通、霧臺校區、勵古百合（由校務資料庫即時提供）。`,
+        `來源回傳的活動（${dbEvents.length} 筆）：\n${formatted}`,
+        '本清單範圍取決於日曆服務回傳結果；查無符合日期的活動時，說明目前資料未列出，請至校務行事曆確認。'
+      ].join('\n');
+
+      cachedCalendarData = context;
+      lastCalendarFetchTime = now;
+      return context;
+    }
+  } catch (dbEx) {
+    console.warn('Supabase calendar events lookup fallback to GAS:', dbEx.message);
+  }
+
+  // 2. 備援降級回退至 GAS 查詢
   try {
     const gasUrl = process.env.CALENDAR_GAS_URL || 'https://script.google.com/macros/s/AKfycbwqB0mHhuLrzUrpe2M7ngW4_97_sQ2VN_MukBetf8sesqG1sJXEX0BIQDxgfOe7L7P3/exec';
     const results = await Promise.all(Object.keys(CALENDAR_NAMES).map(async type => {
