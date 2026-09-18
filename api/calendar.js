@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { authenticateApiRequest } from './line_auth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -7,25 +8,28 @@ const supabase = createClient(
 
 const GAS_URL = process.env.CALENDAR_GAS_URL || 'https://script.google.com/macros/s/AKfycbwqB0mHhuLrzUrpe2M7ngW4_97_sQ2VN_MukBetf8sesqG1sJXEX0BIQDxgfOe7L7P3/exec';
 
-// 從 GAS 拉取所有活動的輔助函式（供降級回退與雙向同步使用）
+// 從 GAS 拉取所有活動的輔助函式（供降級回退與雙向同步使用，內建中斷重試機制）
 async function fetchEventsFromGas(targetTypes = ['all', 'wutai', 'ligu']) {
   const fetchPromises = targetTypes.map(async (t) => {
-    try {
-      const r = await fetch(`${GAS_URL}?type=${t}`);
-      if (r.ok) {
-        const data = await r.json();
-        if (data.status === 'success' && Array.isArray(data.data)) {
-          return data.data.map(item => ({
-            ...item,
-            calendarType: item.calendarType || t
-          }));
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const r = await fetch(`${GAS_URL}?type=${t}`);
+        if (r.ok) {
+          const data = await r.json();
+          if (data.status === 'success' && Array.isArray(data.data)) {
+            return data.data.map(item => ({
+              ...item,
+              calendarType: item.calendarType || t
+            }));
+          }
+        }
+      } catch (err) {
+        if (attempt === 2) {
+          console.warn(`Fetch calendar type ${t} from GAS failed after retry:`, err.message);
         }
       }
-      return [];
-    } catch (err) {
-      console.warn(`Fetch calendar type ${t} from GAS failed:`, err.message);
-      return [];
     }
+    return [];
   });
 
   const results = await Promise.all(fetchPromises);
@@ -44,7 +48,7 @@ async function fetchEventsFromGas(targetTypes = ['all', 'wutai', 'ligu']) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-line-uid');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-line-uid, x-line-id-token');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -301,6 +305,31 @@ export default async function handler(req, res) {
 
       if (!title || !startTime) {
         return res.status(400).json({ status: 'error', message: '缺少活動名稱 (title) 或開始時間 (startTime)' });
+      }
+
+      if (req.headers && (req.headers['x-line-uid'] || req.headers['x-line-id-token'])) {
+        const auth = await authenticateApiRequest(req);
+        if (!auth.valid) {
+          return res.status(401).json({ status: 'error', message: auth.error });
+        }
+      }
+
+      // 併發防重複保護：若已存在相同校區、標題與開始時間的活動，直接回傳既有活動，防止連點或同時發送產生重複資料
+      const { data: duplicate } = await supabase
+        .from('calendar_events')
+        .select('*')
+        .eq('calendar_type', calendarType || 'all')
+        .eq('title', title.trim())
+        .eq('start_time', startTime)
+        .limit(1)
+        .maybeSingle();
+
+      if (duplicate) {
+        return res.status(200).json({
+          status: 'success',
+          message: '活動已存在（防止重複建立）',
+          event: duplicate
+        });
       }
 
       const { data: newRow, error: insertError } = await supabase

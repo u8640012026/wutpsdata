@@ -129,3 +129,88 @@ test('api/bind rejects invalid ID token with 401', async (t) => {
   assert.equal(statusCode, 401);
   assert.match(body.error, /LINE 官方驗證失敗/);
 });
+
+test('api/staff rejects invalid x-line-id-token with 401', async (t) => {
+  const prevEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('api.line.me')) {
+      return json({ error: 'invalid_request', error_description: 'Signature invalid' }, 400);
+    }
+    return json(null);
+  };
+
+  t.after(() => {
+    process.env.NODE_ENV = prevEnv;
+    globalThis.fetch = originalFetch;
+  });
+
+  const { default: staffHandler } = await import(`../api/staff.js?test=${++moduleId}`);
+  let statusCode, body;
+  await staffHandler(
+    { 
+      method: 'GET', 
+      headers: { 
+        'x-line-uid': 'U_ADMIN', 
+        'x-line-id-token': 'forged-token' 
+      } 
+    },
+    {
+      status(c) { statusCode = c; return this; },
+      json(v) { body = v; return this; },
+      send(v) { body = v; }
+    }
+  );
+
+  assert.equal(statusCode, 401);
+  assert.match(body.error, /LINE 官方驗證失敗/);
+});
+
+test('api/calendar prevents duplicate event creation on identical campus, title, and start_time', async (t) => {
+  const originalFetch = globalThis.fetch;
+  let queriedFilters = [];
+
+  globalThis.fetch = async (url, opts) => {
+    const address = new URL(String(url));
+    if (address.hostname === 'database.test') {
+      queriedFilters.push(address.search);
+      // Simulate existing duplicate record
+      return json({
+        id: 'existing-event-1',
+        calendar_type: 'wutai',
+        title: '晨會',
+        start_time: '2026-09-18T08:00:00+08:00'
+      });
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: calendarHandler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode, body;
+  await calendarHandler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'U_ADMIN' },
+      body: {
+        calendarType: 'wutai',
+        title: '晨會',
+        startTime: '2026-09-18T08:00:00+08:00'
+      }
+    },
+    {
+      setHeader() {},
+      status(c) { statusCode = c; return this; },
+      json(v) { body = v; return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  assert.equal(body.status, 'success');
+  assert.match(body.message, /防止重複建立/);
+  assert.equal(body.event.id, 'existing-event-1');
+});

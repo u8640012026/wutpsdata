@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { canManageRepairs, isSuperAdmin } from '../src/lib/staffAccess.js';
+import { authenticateApiRequest } from './line_auth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -46,10 +47,11 @@ export default async function handler(req, res) {
     }
   }
 
-  const line_uid = req.headers['x-line-uid'];
-  if (!line_uid) {
-    return res.status(401).json({ error: 'Unauthorized: Missing LINE UID' });
+  const auth = await authenticateApiRequest(req);
+  if (!auth.valid) {
+    return res.status(401).json({ error: auth.error });
   }
+  const line_uid = auth.uid;
 
   try {
     // 檢查使用者權限

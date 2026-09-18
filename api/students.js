@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { isSchoolAdmin, homeroomClass, studentClass } from '../src/lib/staffAccess.js';
+import { authenticateApiRequest, verifyLineIdToken } from './line_auth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -13,8 +14,9 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const line_uid = req.headers['x-line-uid'];
-      if (!line_uid) return res.status(401).json({ error: 'Missing LINE UID' });
+      const auth = await authenticateApiRequest(req);
+      if (!auth.valid) return res.status(401).json({ error: auth.error });
+      const line_uid = auth.uid;
 
       // 1. 驗證權限
       const { data: staffData } = await supabase.from('staff').select('*').eq('line_uid', line_uid).single();
@@ -35,13 +37,23 @@ export default async function handler(req, res) {
     } 
     
     if (req.method === 'POST') {
-      const { line_uid, studentsData } = req.body;
-      if (!line_uid || !studentsData || !Array.isArray(studentsData)) {
+      const { line_uid, studentsData, id_token } = req.body || {};
+      const activeUid = req.headers['x-line-uid'] || line_uid;
+      const activeToken = req.headers['x-line-id-token'] || id_token;
+
+      if (!activeUid || !studentsData || !Array.isArray(studentsData)) {
         return res.status(400).json({ error: 'Missing parameters or invalid data' });
       }
 
+      if (activeToken) {
+        const tokenResult = await verifyLineIdToken(activeToken, activeUid);
+        if (!tokenResult.valid) {
+          return res.status(401).json({ error: tokenResult.error });
+        }
+      }
+
       // 1. 驗證是否為行政人員
-      const { data: staffData } = await supabase.from('staff').select('*').eq('line_uid', line_uid).single();
+      const { data: staffData } = await supabase.from('staff').select('*').eq('line_uid', activeUid).single();
 
       if (!staffData || (staffData.title !== '行政' && !staffData.email.includes('u864001'))) {
         return res.status(403).json({ error: 'Forbidden: 權限不足' });

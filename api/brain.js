@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { authenticateApiRequest } from './line_auth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -10,7 +11,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: '伺服器未設定機密金鑰 (SERVICE_ROLE_KEY)' });
   }
 
-  const line_uid = req.headers['x-line-uid'];
+  let line_uid = req.headers['x-line-uid'];
 
   try {
     if (req.method === 'GET') {
@@ -29,9 +30,11 @@ export default async function handler(req, res) {
 
     // 寫入與刪除必須驗證教職員身分
     if (req.method === 'POST' || req.method === 'DELETE') {
-      if (!line_uid) {
-        return res.status(401).json({ error: 'Unauthorized: 請先由 LINE 登入校務身分' });
+      const auth = await authenticateApiRequest(req);
+      if (!auth.valid) {
+        return res.status(401).json({ error: auth.error });
       }
+      line_uid = auth.uid;
 
       const { data: staffData } = await supabase
         .from('staff')

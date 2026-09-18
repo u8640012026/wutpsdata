@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { roleTags, isSuperAdmin } from '../src/lib/staffAccess.js';
+import { authenticateApiRequest } from './line_auth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -59,8 +60,10 @@ export default async function handler(req, res) {
       return res.status(200).json(data || []);
     }
     
-    const uid = req.headers?.['x-line-uid'];
-    if (!uid) return res.status(401).json({ error: '請先登入。' });
+    const auth = await authenticateApiRequest(req);
+    if (!auth.valid) return res.status(401).json({ error: auth.error });
+    const uid = auth.uid;
+
     const { data: staff } = await supabase.from('staff').select('*').eq('line_uid', uid).single();
     if (!staff || !(isSuperAdmin(staff) || ['1','2','3'].some(tag => roleTags(staff).includes(tag)))) return res.status(403).json({ error: '沒有公告維護權限。' });
 

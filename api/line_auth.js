@@ -48,3 +48,27 @@ export async function verifyLineIdToken(idToken, expectedUid = null) {
     return { valid: false, error: `連線至 LINE 驗證中心失敗: ${err.message}` };
   }
 }
+
+/**
+ * 統一檢驗 API Request Headers 中的身分標頭 (x-line-uid 與 x-line-id-token)
+ * @param {import('http').IncomingMessage} req
+ * @returns {Promise<{ valid: boolean, error?: string, uid?: string }>}
+ */
+export async function authenticateApiRequest(req) {
+  const lineUid = req.headers['x-line-uid'];
+  const idToken = req.headers['x-line-id-token'];
+
+  if (!lineUid) {
+    return { valid: false, error: 'Unauthorized: 請先由 LINE 登入校務身分 (Missing LINE UID)' };
+  }
+
+  // 若前端帶有 LINE ID Token，執行官方防偽驗證
+  if (idToken) {
+    const result = await verifyLineIdToken(idToken, lineUid);
+    if (!result.valid) {
+      return { valid: false, error: result.error };
+    }
+  }
+
+  return { valid: true, uid: lineUid };
+}

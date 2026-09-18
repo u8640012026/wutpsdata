@@ -23,9 +23,10 @@ CREATE TABLE IF NOT EXISTS public.calendar_events (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 建立索引加速查詢
+-- 建立索引加速查詢與防止併發重複
 CREATE INDEX IF NOT EXISTS idx_calendar_events_type_time ON public.calendar_events (calendar_type, start_time);
 CREATE INDEX IF NOT EXISTS idx_calendar_events_gcal_id ON public.calendar_events (gcal_event_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_gcal_unique ON public.calendar_events (gcal_event_id) WHERE gcal_event_id IS NOT NULL AND gcal_event_id != '';
 
 -- 啟用 Row-Level Security (RLS)
 ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
