@@ -399,3 +399,150 @@ test('api/calendar DELETE preserves failed_delete status in database when GAS re
   assert.match(failedRecord.sync_error, /503/);
 });
 
+test('api/calendar DELETE deletes locally without calling GAS when gcal_event_id is null', async t => {
+  const originalFetch = globalThis.fetch;
+  let deletedFromDb = false;
+  let gasCalled = false;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const address = new URL(String(url));
+    if (address.hostname === 'database.test') {
+      const table = address.pathname.split('/').pop();
+      if (table === 'staff') return json({ id: 's1', line_uid: 'admin_uid', role_tags: '0' });
+      if (table === 'calendar_events') {
+        if (init.method === 'DELETE') {
+          deletedFromDb = true;
+          return json([{ id: 'ev_local' }]);
+        }
+        // 回傳 gcal_event_id 為 null 的本地/未同步活動
+        return json({ id: 'ev_local', gcal_event_id: null, calendar_type: 'all' });
+      }
+    }
+    if (address.hostname.includes('script.google.com')) {
+      gasCalled = true;
+      return json({ status: 'success' });
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'DELETE',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: { eventId: 'ev_local' }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  assert.equal(body.status, 'success');
+  assert.equal(deletedFromDb, true);
+  assert.equal(gasCalled, false);
+});
+
+test('api/calendar DELETE returns 500 when GAS succeeds but Supabase hard delete fails', async t => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const address = new URL(String(url));
+    if (address.hostname === 'database.test') {
+      const table = address.pathname.split('/').pop();
+      if (table === 'staff') return json({ id: 's1', line_uid: 'admin_uid', role_tags: '0' });
+      if (table === 'calendar_events') {
+        if (init.method === 'PATCH') {
+          return json([{ id: 'ev_del' }]);
+        }
+        if (init.method === 'DELETE') {
+          // 模擬 Supabase 刪除失敗
+          return json({ message: 'violates foreign key constraint' }, 500);
+        }
+        return json({ id: 'ev_del', gcal_event_id: 'gcal_del_123', calendar_type: 'all' });
+      }
+    }
+    if (address.hostname.includes('script.google.com')) {
+      return json({ status: 'success' });
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'DELETE',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: { eventId: 'ev_del' }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 500);
+  assert.equal(body.status, 'error');
+  assert.match(body.message, /資料庫刪除活動失敗/);
+});
+
+test('api/calendar DELETE returns 500 when persisting failed_delete state fails', async t => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const address = new URL(String(url));
+    if (address.hostname === 'database.test') {
+      const table = address.pathname.split('/').pop();
+      if (table === 'staff') return json({ id: 's1', line_uid: 'admin_uid', role_tags: '0' });
+      if (table === 'calendar_events') {
+        if (init.method === 'PATCH') {
+          const payload = JSON.parse(init.body);
+          if (payload.sync_status === 'pending_delete') {
+            return json([{ id: 'ev_del', ...payload }]);
+          }
+          if (payload.sync_status === 'failed_delete') {
+            // 模擬儲存 failed_delete 狀態失敗
+            return json({ message: 'disk full or db unavailable' }, 500);
+          }
+        }
+        return json({ id: 'ev_del', gcal_event_id: 'gcal_del_456', calendar_type: 'all' });
+      }
+    }
+    if (address.hostname.includes('script.google.com')) {
+      return json({ error: 'Service Unavailable' }, 503);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'DELETE',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: { eventId: 'ev_del' }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 500);
+  assert.equal(body.status, 'error');
+  assert.match(body.message, /儲存待重試刪除紀錄失敗/);
+});
+
+

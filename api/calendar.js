@@ -340,7 +340,6 @@ export default async function handler(req, res) {
         return res.status(400).json({ status: 'error', message: '缺少 eventId' });
       }
 
-      let gcalId = eventId;
       const { data: existing, error: findErr } = await supabase
         .from('calendar_events')
         .select('id, gcal_event_id, calendar_type')
@@ -351,38 +350,52 @@ export default async function handler(req, res) {
         return res.status(500).json({ status: 'error', message: '查詢待刪除活動失敗：' + findErr.message });
       }
 
-      if (existing) {
-        gcalId = existing.gcal_event_id || eventId;
-        // 先標記為 pending_delete 狀態，保留失敗重試與待同步紀錄
-        await supabase
-          .from('calendar_events')
-          .update({ sync_status: 'pending_delete', sync_error: null })
-          .eq('id', existing.id);
-      } else {
+      if (!existing) {
         return res.status(404).json({ status: 'error', message: '查無此活動記錄，無法刪除' });
       }
 
-      // 若有 Google 日曆外部 ID，執行可靠刪除流程
+      const gcalId = existing.gcal_event_id;
+
+      // 若有 Google 日曆外部 ID，執行可靠刪除流程（標記 pending_delete -> GAS 刪除 -> 本地 hard delete）
       if (gcalId) {
+        // 先標記為 pending_delete 狀態，保留失敗重試與待同步紀錄
+        const { error: pendingErr } = await supabase
+          .from('calendar_events')
+          .update({ sync_status: 'pending_delete', sync_error: null })
+          .eq('id', existing.id);
+
+        if (pendingErr) {
+          return res.status(500).json({ status: 'error', message: '更新待刪除狀態失敗：' + pendingErr.message });
+        }
+
         const gasResult = await sendGasWriteWithRetry({
           action: 'delete',
           eventId: gcalId,
           calendarType: calendarType || existing.calendar_type || 'all'
         });
 
-        if (gasResult.success) {
+        const isGoogleDeleted = gasResult.success || (gasResult.error && (gasResult.error.toLowerCase().includes('not found') || gasResult.error.includes('404')));
+
+        if (isGoogleDeleted) {
           // Google 確認刪除後才完成清理 (Hard Delete)
-          await supabase.from('calendar_events').delete().eq('id', existing.id);
+          const { error: delErr } = await supabase.from('calendar_events').delete().eq('id', existing.id);
+          if (delErr) {
+            return res.status(500).json({ status: 'error', message: '資料庫刪除活動失敗：' + delErr.message });
+          }
           return res.status(200).json({ status: 'success', message: '活動已刪除' });
         } else {
           // Google 刪除失敗：在資料庫保留失敗紀錄以供補做
-          await supabase
+          const { error: failErr } = await supabase
             .from('calendar_events')
             .update({
               sync_status: 'failed_delete',
               sync_error: gasResult.error || 'Google 日曆刪除失敗'
             })
             .eq('id', existing.id);
+
+          if (failErr) {
+            return res.status(500).json({ status: 'error', message: '儲存待重試刪除紀錄失敗：' + failErr.message });
+          }
 
           return res.status(200).json({
             status: 'success',
@@ -394,7 +407,10 @@ export default async function handler(req, res) {
         }
       } else {
         // 若無 Google ID，直接清理資料庫
-        await supabase.from('calendar_events').delete().eq('id', existing.id);
+        const { error: delErr } = await supabase.from('calendar_events').delete().eq('id', existing.id);
+        if (delErr) {
+          return res.status(500).json({ status: 'error', message: '資料庫刪除活動失敗：' + delErr.message });
+        }
         return res.status(200).json({ status: 'success', message: '活動已刪除' });
       }
     }
@@ -406,7 +422,6 @@ export default async function handler(req, res) {
         return res.status(400).json({ status: 'error', message: '缺少活動 ID (eventId)、名稱 (title) 或開始時間 (startTime)' });
       }
 
-      let gcalId = eventId;
       const { data: existing, error: findErr } = await supabase
         .from('calendar_events')
         .select('id, gcal_event_id')
@@ -421,7 +436,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ status: 'error', message: '查無此活動記錄，無法更新' });
       }
 
-      gcalId = existing.gcal_event_id || eventId;
+      const gcalId = existing.gcal_event_id;
       const { error: updateErr } = await supabase.from('calendar_events').update({
         calendar_type: calendarType || 'all',
         title: title.trim(),
