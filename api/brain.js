@@ -20,6 +20,17 @@ export default async function handler(req, res) {
         return res.status(401).json({ error: auth.error });
       }
 
+      // 嚴格校驗：僅限已建檔之在職教職員查閱校務大腦機敏文件
+      const { data: staffData } = await supabase
+        .from('staff')
+        .select('id, name, department, role_tags')
+        .eq('line_uid', auth.uid)
+        .maybeSingle();
+
+      if (!staffData) {
+        return res.status(403).json({ error: 'Forbidden: 僅限已建檔之校內教職員查閱校務知識庫' });
+      }
+
       const { dept_id } = req.query;
       let query = supabase.from('brain_documents').select('*').order('created_at', { ascending: false });
       if (dept_id) {

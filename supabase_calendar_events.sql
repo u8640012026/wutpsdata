@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS public.calendar_events (
     creator_name TEXT DEFAULT '',
     creator_uid TEXT DEFAULT '',
     sync_status TEXT DEFAULT 'synced', -- 'synced', 'pending_push', 'failed'
+    sync_error TEXT DEFAULT NULL, -- 同步錯誤訊息 (若同步失敗)
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -28,6 +29,10 @@ CREATE INDEX IF NOT EXISTS idx_calendar_events_type_time ON public.calendar_even
 CREATE INDEX IF NOT EXISTS idx_calendar_events_gcal_id ON public.calendar_events (gcal_event_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_gcal_unique ON public.calendar_events (gcal_event_id) WHERE gcal_event_id IS NOT NULL AND gcal_event_id != '';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_unique_time ON public.calendar_events (calendar_type, title, start_time);
+
+-- 資料庫欄位遷移（若資料表已存在，自動補齊狀態欄位）
+ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS sync_status TEXT DEFAULT 'synced';
+ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS sync_error TEXT DEFAULT NULL;
 
 -- 啟用 Row-Level Security (RLS)
 ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;

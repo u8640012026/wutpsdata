@@ -3,6 +3,7 @@ import liff from '@line/liff';
 
 export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDark, t, liffProfile, isLiffInit }) {
   const [bindEmail, setBindEmail] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [isBinding, setIsBinding] = useState(false);
   const [hasAgreed, setHasAgreed] = useState(false);
   const [isDev, setIsDev] = useState(false);
@@ -38,7 +39,8 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
           email: bindEmail,
           displayName: liffProfile.displayName,
           userId: liffProfile.userId,
-          id_token: idToken
+          id_token: idToken,
+          invite_code: inviteCode.trim()
         })
       });
       
@@ -119,6 +121,14 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
               className={`w-full p-3 text-sm rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-shadow ${isDark ? 'bg-gray-900 text-white placeholder-gray-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`}
               value={bindEmail}
               onChange={(e) => setBindEmail(e.target.value)}
+              disabled={!hasAgreed}
+            />
+            <input 
+              type="password" 
+              placeholder="綁定授權碼 (若無特殊設定請留空)" 
+              className={`w-full p-3 text-sm rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-shadow ${isDark ? 'bg-gray-900 text-white placeholder-gray-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`}
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
               disabled={!hasAgreed}
             />
             <button 

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { isSchoolAdmin, homeroomClass, studentClass } from '../src/lib/staffAccess.js';
-import { authenticateApiRequest, verifyLineIdToken } from './line_auth.js';
+import { authenticateApiRequest } from './line_auth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -37,31 +37,34 @@ export default async function handler(req, res) {
     } 
     
     if (req.method === 'POST') {
-      const { line_uid, studentsData, id_token } = req.body || {};
-      const activeUid = req.headers['x-line-uid'] || line_uid;
-      const activeToken = req.headers['x-line-id-token'] || id_token;
+      const auth = await authenticateApiRequest(req);
+      if (!auth.valid) {
+        return res.status(401).json({ error: auth.error });
+      }
+      const activeUid = auth.uid;
 
-      if (!activeUid || !studentsData || !Array.isArray(studentsData)) {
+      const { studentsData } = req.body || {};
+      if (!studentsData || !Array.isArray(studentsData)) {
         return res.status(400).json({ error: 'Missing parameters or invalid data' });
       }
 
-      if (activeToken) {
-        const tokenResult = await verifyLineIdToken(activeToken, activeUid);
-        if (!tokenResult.valid) {
-          return res.status(401).json({ error: tokenResult.error });
-        }
-      }
+      // 1. 嚴格驗證是否為行政管理權限人員
+      const { data: staffData } = await supabase
+        .from('staff')
+        .select('*')
+        .eq('line_uid', activeUid)
+        .maybeSingle();
 
-      // 1. 驗證是否為行政人員
-      const { data: staffData } = await supabase.from('staff').select('*').eq('line_uid', activeUid).single();
-
-      if (!staffData || (staffData.title !== '行政' && !staffData.email.includes('u864001'))) {
-        return res.status(403).json({ error: 'Forbidden: 權限不足' });
+      if (!staffData || !isSchoolAdmin(staffData)) {
+        return res.status(403).json({ error: 'Forbidden: 權限不足，僅限行政與系統管理人員管理學生名冊' });
       }
 
       // 2. 選擇性更新
       const studentIds = studentsData.map(s => s.student_id);
-      const { data: existingStudents } = await supabase.from('students').select('student_id, details').in('student_id', studentIds);
+      const { data: existingStudents } = await supabase
+        .from('students')
+        .select('student_id, details')
+        .in('student_id', studentIds);
       
       const existingMap = {};
       if (existingStudents) {
@@ -82,8 +85,8 @@ export default async function handler(req, res) {
       
       // 4. 寫入 Audit Log
       await supabase.from('audit_logs').insert({
-        actor_uid: line_uid,
-        actor_role: 'admin',
+        actor_uid: activeUid,
+        actor_role: staffData.title || 'admin',
         action: 'IMPORT_STUDENTS',
         target_table: 'students',
         details: { count: studentsData.length, timestamp: new Date().toISOString() }

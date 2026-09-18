@@ -31,14 +31,18 @@ export default async function handler(req, res) {
       if (!auth.valid) return res.status(401).json({ error: auth.error });
       const trustedUid = auth.uid;
 
-      // 自教職員名冊查詢真實姓名，防止自訂偽造
+      // 自教職員名冊查詢真實姓名，防止自訂偽造，並嚴格限制僅限在職教職員留言
       const { data: staffData } = await supabase
         .from('staff')
         .select('id, name')
         .eq('line_uid', trustedUid)
         .maybeSingle();
 
-      const trustedName = staffData?.name || '校務同仁';
+      if (!staffData) {
+        return res.status(403).json({ error: 'Forbidden: 僅限已建檔之校內教職員發表公告留言' });
+      }
+
+      const trustedName = staffData.name;
       const { announcement_id, content } = req.body || {};
       if (!announcement_id || !content || !content.trim()) {
         return res.status(400).json({ error: '缺少公告 ID 或留言內容' });

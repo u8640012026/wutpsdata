@@ -72,7 +72,43 @@ async function fetchEventsFromGas(targetTypes = ['all', 'wutai', 'ligu']) {
 
   const combinedEvents = Array.from(eventMap.values());
   combinedEvents.sort((a, b) => new Date(a.start) - new Date(b.start));
+  combinedEvents.successfulTypes = targetTypes.filter((t, i) => results[i] !== null);
+  combinedEvents.failedTypes = targetTypes.filter((t, i) => results[i] === null);
+  combinedEvents.isPartial = combinedEvents.failedTypes.length > 0 && combinedEvents.successfulTypes.length > 0;
   return combinedEvents;
+}
+
+// 向 Google Apps Script 發送寫入操作（新增、更新、刪除），支援 6 秒逾時與 3 次指數退避重試
+async function sendGasWriteWithRetry(payload, maxAttempts = 3) {
+  const errors = [];
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    try {
+      const res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        return { success: true, data };
+      }
+      throw new Error(`GAS 端點回傳異常狀態碼: ${res.status}`);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      errors.push(`第 ${attempt} 次重試失敗: ${err.message}`);
+      if (attempt < maxAttempts) {
+        const delay = attempt * 150;
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  return { success: false, error: errors.join('; ') };
 }
 
 export default async function handler(req, res) {
@@ -253,10 +289,19 @@ export default async function handler(req, res) {
         }
       }
 
+      const isPartial = gasEvents.isPartial || (gasEvents.failedTypes && gasEvents.failedTypes.length > 0);
+      const successfulCampuses = gasEvents.successfulTypes || [];
+      const failedCampuses = gasEvents.failedTypes || [];
+
       return res.status(200).json({
-        status: 'success',
-        message: `成功從 Google 日曆同步 ${syncedCount} 筆活動至 Supabase`,
-        syncedCount
+        status: isPartial ? 'partial' : 'success',
+        message: isPartial
+          ? `部分校區同步完成：成功同步 ${syncedCount} 筆活動（成功校區：${successfulCampuses.join('、') || '無'}；失敗校區：${failedCampuses.join('、')}）`
+          : `成功從 Google 日曆同步 ${syncedCount} 筆活動至 Supabase`,
+        syncedCount,
+        partial: Boolean(isPartial),
+        successfulCampuses,
+        failedCampuses
       });
     }
 
@@ -288,16 +333,12 @@ export default async function handler(req, res) {
         return res.status(404).json({ status: 'error', message: '查無此活動記錄，無法刪除' });
       }
 
-      // 背景非同步通知 GAS 刪除 Google 日曆事件 (Fire-and-forget)
+      // 背景非同步通知 GAS 刪除 Google 日曆事件（具備逾時控制與自動退避重試）
       if (gcalId) {
-        fetch(GAS_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'delete',
-            eventId: gcalId,
-            calendarType: calendarType || 'all'
-          })
+        sendGasWriteWithRetry({
+          action: 'delete',
+          eventId: gcalId,
+          calendarType: calendarType || 'all'
         }).catch(err => console.warn('Background GAS delete failed:', err.message));
       }
 
@@ -342,22 +383,33 @@ export default async function handler(req, res) {
         return res.status(500).json({ status: 'error', message: '更新活動失敗：' + updateErr.message });
       }
 
-      // 背景非同步通知 GAS 更新 Google 日曆事件 (Fire-and-forget)
+      // 背景非同步通知 GAS 更新 Google 日曆事件（具備逾時控制與自動退避重試）
       if (gcalId) {
-        fetch(GAS_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'update',
-            eventId: gcalId,
-            calendarType: calendarType || 'all',
-            title: title.trim(),
-            location: location ? location.trim() : '',
-            description: description ? description.trim() : '',
-            startTime,
-            endTime: endTime || startTime,
-            isAllDay: Boolean(isAllDay)
-          })
+        sendGasWriteWithRetry({
+          action: 'update',
+          eventId: gcalId,
+          calendarType: calendarType || 'all',
+          title: title.trim(),
+          location: location ? location.trim() : '',
+          description: description ? description.trim() : '',
+          startTime,
+          endTime: endTime || startTime,
+          isAllDay: Boolean(isAllDay)
+        }).then(async (gasResult) => {
+          if (gasResult.success) {
+            const { error: syncUpErr } = await supabase
+              .from('calendar_events')
+              .update({ sync_status: 'synced', sync_error: null })
+              .eq('id', existing.id);
+            if (syncUpErr) {
+              await supabase.from('calendar_events').update({ updated_at: new Date().toISOString() }).eq('id', existing.id);
+            }
+          } else {
+            await supabase
+              .from('calendar_events')
+              .update({ sync_status: 'failed', sync_error: gasResult.error || 'Google 日曆更新失敗' })
+              .eq('id', existing.id);
+          }
         }).catch(err => console.warn('Background GAS update failed:', err.message));
       }
 
@@ -442,11 +494,19 @@ export default async function handler(req, res) {
         if (insertError) {
           // 捕捉 PostgreSQL 23505 主鍵衝突或唯一鍵衝突（真正併發競爭）
           if (insertError.code === '23505' || insertError.message?.includes('duplicate')) {
-            const { data: dupRow } = await supabase
+            const { data: dupRow, error: dupErr } = await supabase
               .from('calendar_events')
               .select('*')
               .or(`id.eq.${eventRowId},and(calendar_type.eq.${calendarType || 'all'},title.eq.${title.trim()},start_time.eq.${startTime})`)
               .maybeSingle();
+
+            if (dupErr || !dupRow) {
+              return {
+                status: 500,
+                body: { status: 'error', message: '併發衝突後檢索既有活動失敗' + (dupErr ? `: ${dupErr.message}` : '') }
+              };
+            }
+
             return {
               status: 200,
               body: { status: 'success', message: '活動已存在（防止重複建立 / 併發冪等攔截）', event: dupRow, deduplicated: true }
@@ -466,40 +526,49 @@ export default async function handler(req, res) {
           };
         }
 
-        // 背景非同步發送給 GAS，取得 Google 日曆 Event ID 並更新 sync_status
-        fetch(GAS_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'create',
-            calendarType: calendarType || 'all',
-            title: title.trim(),
-            location: location ? location.trim() : '',
-            description: description ? description.trim() : '',
-            startTime,
-            endTime: endTime || startTime,
-            isAllDay: Boolean(isAllDay)
-          })
-        }).then(async gasRes => {
-          if (gasRes.ok) {
-            const gasData = await gasRes.json();
-            if (gasData?.eventId) {
+        // 背景非同步發送給 GAS，取得 Google 日曆 Event ID 並更新 sync_status（含退避重試）
+        sendGasWriteWithRetry({
+          action: 'create',
+          calendarType: calendarType || 'all',
+          title: title.trim(),
+          location: location ? location.trim() : '',
+          description: description ? description.trim() : '',
+          startTime,
+          endTime: endTime || startTime,
+          isAllDay: Boolean(isAllDay)
+        }).then(async (gasResult) => {
+          if (gasResult.success && gasResult.data?.eventId) {
+            const gasEventId = gasResult.data.eventId;
+            const { error: syncUpdateErr } = await supabase
+              .from('calendar_events')
+              .update({ gcal_event_id: gasEventId, sync_status: 'synced', sync_error: null })
+              .eq('id', eventRowId);
+
+            if (syncUpdateErr) {
+              console.warn('Sync status update note:', syncUpdateErr.message);
+              // 若正式資料庫尚未執行 migration，降級僅更新 gcal_event_id
               await supabase
                 .from('calendar_events')
-                .update({ gcal_event_id: gasData.eventId, sync_status: 'synced', sync_error: null })
+                .update({ gcal_event_id: gasEventId })
                 .eq('id', eventRowId);
-              return;
             }
+            return;
           }
-          await supabase.from('calendar_events').update({
-            sync_status: 'failed',
-            sync_error: 'Google Apps Script 回傳失敗'
-          }).eq('id', eventRowId);
+
+          const failReason = gasResult.error || 'Google Apps Script 回傳失敗';
+          const { error: failUpdateErr } = await supabase
+            .from('calendar_events')
+            .update({
+              sync_status: 'failed',
+              sync_error: failReason
+            })
+            .eq('id', eventRowId);
+
+          if (failUpdateErr) {
+            console.warn('Failed sync_status update note:', failUpdateErr.message);
+          }
         }).catch(async err => {
-          await supabase.from('calendar_events').update({
-            sync_status: 'failed',
-            sync_error: err.message
-          }).eq('id', eventRowId);
+          console.error('Background GAS create error:', err.message);
         });
 
         return {

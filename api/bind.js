@@ -45,12 +45,22 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: '超級管理者帳號為系統核心身分，嚴禁由公開表單自主綁定，請由管理後台或雲端主控台配置。' });
     }
 
-    // 3. 防覆蓋保護：若已綁定且 UID 不符，嚴禁直接搶佔覆蓋
+    // 3. 邀請碼與身分核准查驗（防止任意持有 LINE 帳號者冒領尚未綁定之同仁公務信箱）
+    const providedCode = (req.body.invite_code || req.body.bind_code || '').trim();
+    const expectedCode = existingStaff.bind_code || existingStaff.details?.bind_code || process.env.STAFF_INVITE_CODE;
+    if (expectedCode && providedCode !== expectedCode) {
+      return res.status(403).json({ error: '首次綁定授權碼 (邀請碼) 不正確。為保障教職員帳號安全，請向學校系統管理員索取綁定驗證碼。' });
+    }
+    if (process.env.REQUIRE_INVITE_CODE === 'true' && !expectedCode && !providedCode) {
+      return res.status(403).json({ error: '本校系統已啟用安全綁定機制，首次綁定必須提供管理員核發之邀請碼。' });
+    }
+
+    // 4. 防覆蓋保護：若已綁定且 UID 不符，嚴禁直接搶佔覆蓋
     if (existingStaff.line_uid && existingStaff.line_uid !== verifiedUid) {
       return res.status(409).json({ error: '此信箱已綁定其他 LINE 帳號。為保障帳號安全，若需換綁請洽系統管理員重設。' });
     }
 
-    // 4. 如果尚未綁定，或為原使用者重複綁定，才寫入 LINE UID
+    // 5. 如果尚未綁定，或為原使用者重複綁定，才寫入 LINE UID
     const { error: updateError } = await supabase
       .from('staff')
       .update({ line_uid: verifiedUid })

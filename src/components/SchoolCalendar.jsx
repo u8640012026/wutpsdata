@@ -72,6 +72,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
   
   // 點選活動詳情彈窗
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const submissionIdRef = useRef(null);
 
   // 月份導航與關鍵字搜尋
   const [selectedMonth, setSelectedMonth] = useState('all'); // 'all' 或 'YYYY-MM'
@@ -207,6 +208,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       notes: ''
     });
     setSubmitSuccess(false);
+    submissionIdRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
     setIsDrawerOpen(true);
   };
 
@@ -410,8 +412,11 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
           })
         });
       } else {
-        // 新增活動 (POST) - 產生 client_event_id 防止併發重複建立
-        const clientEventId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
+        // 新增活動 (POST) - 沿用同一個 client_event_id 防止重試或併發連點產生多筆活動
+        if (!submissionIdRef.current) {
+          submissionIdRef.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
+        }
+        const clientEventId = submissionIdRef.current;
         res = await fetch('/api/calendar', {
           method: 'POST',
           headers: { 
@@ -437,6 +442,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       const resData = await res.json();
       if (res.ok && resData.status === 'success') {
         setSubmitSuccess(true);
+        submissionIdRef.current = null;
         // 清除持久化快取以強制讀取最新資料
         clearAllCalendarCache();
 

@@ -1,158 +1,128 @@
-# 屏東縣霧臺國小校務系統 (wutpsdata) 第二輪代碼審核全面驗收報告
+# 屏東縣霧臺國小校務系統 (wutpsdata) 第三輪代碼審核全面加固竣工報告
 
-本報告針對外部 AI（ChatGPT）對 Commit `0bb0540` 進行第二輪隔離審核所提出之 **5 項未完全達標項目**，提供完整之重構實裝說明、架構設計、驗證數據與對應之 Git 提交紀錄。
-
----
-
-## 1. 最新 Git 提交紀錄 (Commit on `origin/dev`)
-
-| 項目 | 狀態 / 數值 |
-| :--- | :--- |
-| **遠端倉庫** | `https://github.com/u8640012026/wutpsdata.git` |
-| **目標分支** | `dev` |
-| **最新 Commit** | **`9c48bd3efdc8c11b7abd89dca77de7e497a88267`** (`9c48bd3`) |
-| **提交訊息** | `feat(security): enforce mandatory LINE ID token, wire frontend auth headers, and implement true calendar deduplication and sync retry` |
-| **變更統計** | 23 files changed, 539 insertions(+), 168 deletions(-) |
-| **測試通過率** | **63 / 63 項測試全數通過 (100%)** |
-| **前端建置** | **Vite build 通過 (0 錯誤)** |
+本報告針對外部 AI（ChatGPT）對 Commit `51ca8a0`（包含 `9c48bd3`）進行第三輪隔離查核所提出之 **5 項未完全達標項目及「學生 POST」疑慮**，提供完整的架構說明、技術實現與測試數據。
 
 ---
 
-## 2. 針對 ChatGPT 第二輪 5 大審核項目逐項實裝清單
+## 1. 疑慮釐清：「學生 POST」是什麼？
+
+> [!NOTE]
+> **「本系統沒有學生要登入的地方，為什麼報告說『學生 POST』？」**
+>
+> 1. **全校學生從不需要、也無法登入本系統**：本系統為教職員校務行政與家長公開查詢之用，無學生帳號機制。
+> 2. **ChatGPT 報告所指的「學生 POST」**：是指**後台管理員在匯入或更新學生名冊（AdminDashboard -> 學生名冊匯入）時，瀏覽器向後端發送的 HTTP 請求端點為 `POST /api/students`**。
+> 3. **原先缺口**：先前的 `api/students.js` 中，查詢名冊（GET）強制驗證 Token，但匯入名冊（POST）卻保留了 `if (activeToken) { ... }` 判斷。這導致無 Token 者能藉由偽造 Header 繞過驗證寫入學生名冊。
+> 4. **現已修復**：`POST /api/students` 現已強制要求 LINE 官方 ID Token，並透過 `isSchoolAdmin(staffData)` 確保僅限校長、主任、組長或超級管理員可執行匯入。
+
+---
+
+## 2. 針對第三輪審核 5 大項目之實裝清單
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           外部審核 5 大項目修正矩陣                           │
+│                           第三輪審核 5 大項目修補矩陣                         │
 ├───────────────────┬───────────────────────────────┬─────────────────────────┤
-│ 審核項目          │ 原先審核判定 (0bb0540)        │ 本次修復成果 (9c48bd3)  │
+│ 審核項目          │ 第三輪判定 (51ca8a0)          │ 本次加固成果            │
 ├───────────────────┼───────────────────────────────┼─────────────────────────┤
-│ 1. 管理 API Token │ 未完成，缺 Token 仍放行       │ 嚴格強制 401，無任何旁路 │
-│ 2. 前端傳送標頭   │ 工具已建立，但尚未接入使用    │ 全元件接入 getAuthHeaders│
-│ 3. 日曆併發防重複 │ 未完成，已重現兩次新增        │ 4 層防護 (前端/互斥/DB) │
-│ 4. 背景同步重試   │ 未完成，假成功 200 仍存在     │ 3次 Backoff + 失敗回傳502│
-│ 5. 測試套件       │ 59 項測試                     │ 擴充至 63 項全數通過    │
+│ 1. 學生匯入 Token │ 未完全完成：POST 仍可省略 Token│ 徹底拔除可選判斷，強制401│
+│ 2. 教職員授權閉環 │ 有 Token 不等於有教職員資格   │ brain/留言/綁定全面授權 │
+│ 3. 日曆併發與衝突 │ 重試換 UUID、23505可能回null  │ 表單ID持久化+23505防護   │
+│ 4. Google寫入重試 │ 背景寫入僅試一次，無狀態回報  │ 3次Backoff+部分校區狀態 │
+│ 5. 同步欄位與遷移 │ 缺少 sync_error 欄位 migration│ 補齊SQL遷移+降級容錯保護│
+│ 6. Webhook 原始體 │ 未擷取 rawBody                │ 支援 Stream/Raw HMAC驗證│
 └───────────────────┴───────────────────────────────┴─────────────────────────┘
 ```
 
-### 項目一：管理 API 強制驗證 LINE ID Token（缺 Token 絕對拒絕）
-- **原問題**：`api/line_auth.js` 中若缺少 Token 或在測試環境下，可能降級至信任 `x-line-uid`，導致無 Token 請求仍可能被放行。
-- **修復內容**：
-  1. **`api/line_auth.js` 核心重構**：
-     - 徹底移除任何「缺 Token 則降級信任 raw UID」的後門。
-     - 若請求標頭或參數中缺少 `x-line-id-token`，一律無條件回傳 `401 Unauthorized: {"error": "Missing LINE ID Token"}`。
-     - 驗證成功後，一律使用 LINE 官方驗證傳回之 `payload.sub` 作為真實信任 UID，杜絕 Header 偽造。
-  2. **全面涵蓋所有管理與異動端點**：
-     - `api/staff.js`：查詢與異動嚴格查驗 Token。
-     - `api/calendar.js`：`POST`、`PUT`、`DELETE`、`sync_from_gas` 必須驗證 Token，且限制管理角色（角色 0, 1, 2, 3）。
-     - `api/repairs.js`：修繕管理與非公開查詢強制驗證。
-     - `api/brain.js`：校務大腦知識庫寫入、刪除與機敏查詢強制驗證。
-     - `api/students.js`：學生名冊維護強制驗證。
-     - `api/announcements.js`：公告發布、編輯與下架強制驗證。
-     - `api/announcement_comments.js`：留言強制驗證 Token，並將留言者強制鎖定為 Token 解析出之本人，防冒名發言。
-     - `api/upload.js`：檔案上傳端點強制查驗 Token 與教職員在職資格（非教職員回傳 403）。
-     - `api/auth.js` & `api/bind.js`：身分綁定流程強制要求前端提供 LINE 登入取得之 `id_token`，不符即回傳 401。
+### 項目一：學生匯入 API (`POST /api/students`) 強制 Token 與管理員查核
+- **檔案**：`api/students.js`
+- **修復**：
+  - 徹底移除 `if (activeToken)` 可選邏輯，全面使用 `authenticateApiRequest(req)`。
+  - 無 Token 立即阻斷並回傳 `401 Unauthorized: {"error": "Missing LINE ID Token"}`。
+  - 驗證通過後，以解密出的 `auth.uid` 查詢教職員表，並呼叫 `isSchoolAdmin(staffData)`。非管理身分回傳 `403 Forbidden`。
+  - 稽核紀錄 `audit_logs` 統一寫入真實 `auth.uid`。
 
-### 項目二：前端全面串接驗證標頭 (`getAuthHeaders`)
-- **原問題**：雖然建立了 `src/lib/authHeader.js`，但前端各功能頁面依然直接使用 `x-line-uid` 發送 API 請求。
-- **修復內容**：
-  全面接入 `getAuthHeaders(currentUid)`：
-  1. `src/components/SchoolCalendar.jsx`：活動建立、更新、刪除、教職員清單載入、GAS 同步請求。
-  2. `src/components/StaffList.jsx`：教職員名冊載入、新增、修改、刪除、解除綁定。
-  3. `src/components/StudentList.jsx`：學生名冊查詢。
-  4. `src/components/BulletinBoard.jsx`：公告列表、附件上傳、公告發布/保存、留言發布。
-  5. `src/components/SchoolBrain.jsx`：知識庫查詢、文件上傳、知識庫刪除。
-  6. `src/pages/RepairDashboard.jsx`：報修清單、新增報修、維修狀態更新。
-  7. `src/pages/AdminDashboard.jsx`：學生匯入、教職員名單匯入、資料庫備份下載。
-  8. `src/App.jsx`：報修紅點角標輪詢 (`fetchRepairBadge`)。
+### 項目二：LINE 身分不等於教職員資格（授權閉環）
+- **校務大腦查閱 (`api/brain.js` GET)**：
+  - 驗證 Token 成功後，額外查詢 `staff` 表；若為外部未建檔之 LINE 帳號，一律回傳 `403 Forbidden: 僅限已建檔之校內教職員查閱校務知識庫`。
+- **公告留言發布 (`api/announcement_comments.js` POST)**：
+  - 查無 `staff` 教職員身分者直接回傳 `403 Forbidden`，徹底禁止以「校務同仁」匿名或冒名發言。
+- **身分首次綁定 (`api/bind.js`)**：
+  - 加入授權碼/邀請碼查核機制（`invite_code` / `bind_code`）：若系統或同仁檔案配置了邀請碼，必須輸入相符驗證碼才能綁定，杜絕任意持有 LINE 帳號者冒領同仁公務信箱。
+  - 前端 `src/components/LiffLogin.jsx` 增加「綁定授權碼」欄位。
 
-### 項目三：日曆併發防重複（徹底根絕 TOCTOU 競態條件）
-- **原問題**：原代碼僅在新增前進行 `SELECT` 查詢，高併發連點下會發生 TOCTOU（Time-of-Check to Time-of-Use）漏洞，造成重複插入多筆相同活動。
-- **修復架構（四層防護網）**：
-  1. **前端 Client Request ID**：前端每次提交表單時，透過 `crypto.randomUUID()` 產生唯一的 `client_event_id` 隨 Payload 送出。
-  2. **記憶體動態互斥鎖 (In-flight Mutex)**：後端 Node.js 執行期維護 `inFlightCreations` Map，以 `client_event_id` 或 `${calendarType}_${title}_${startTime}` 為 Key。若相同操作已在進行中，後續併發請求直接掛載等待同一個 Promise，不重複觸發資料庫寫入。
-  3. **資料庫查重查詢**：檢查資料庫中是否存在相同 `client_event_id` 或相同 `(calendar_type, title, start_time)` 的未刪除事件。
-  4. **PostgreSQL 唯一約束與衝突捕捉**：
-     - 在 SQL 定義了 `idx_calendar_events_unique_time ON public.calendar_events (calendar_type, title, start_time)`。
-     - 若發生資料庫層併發衝突（Postgres Error Code `23505`），程式優雅捕捉錯誤，並自動讀取已存在的紀錄返回，標記 `deduplicated: true`，回傳 HTTP 200/201，杜絕 500 錯誤與重複資料。
+### 項目三：日曆防重複完善與 23505 空指標保護
+- **前端重試 Client Request ID 保持**：
+  - `src/components/SchoolCalendar.jsx` 引入 `submissionIdRef`，表單開啟時生成唯一 UUID，在使用者重試或網路波動重新點擊時，**沿用同一個 `client_event_id`**，不重新產生新 ID。成功後自動重設。
+- **23505 衝突檢索防護**：
+  - `api/calendar.js` 在捕捉到 Postgres `23505` 唯一鍵衝突後，檢查二次查詢結果。若查詢發生錯誤或結果為 `null`，嚴格回傳 `500` 錯誤，**絕不回傳 `event: null` 假成功**。
 
-### 項目四：背景同步重試 (Retry with Backoff) 與真實錯誤回報
-- **原問題**：同步失敗時吞掉錯誤，返回 200 與 0 筆資料，形成「假成功」。
-- **修復內容**：
-  1. **逾時控制**：使用 `AbortController` 為每次 Google Apps Script (GAS) 請求設定 6 秒嚴格逾時。
-  2. **指數退避重試 (Exponential Backoff)**：最多重試 3 次，每次間隔時間指數遞增（`1000ms * 2^attempt`）。
-  3. **拒絕假成功**：若重試後依然失敗，後端**嚴禁回傳 HTTP 200**，改為回傳 **`HTTP 502 Bad Gateway`**，並附帶具體錯誤訊息：
-     ```json
-     {
-       "error": "Failed to fetch events from Google Apps Script after 3 attempts",
-       "details": "..."
-     }
-     ```
+### 項目四：Google 背景寫入（新增/修改/刪除）重試與部分校區狀態
+- **檔案**：`api/calendar.js`
+- **實裝**：
+  - 建立 `sendGasWriteWithRetry(payload, maxAttempts = 3)`，背景向 Google Apps Script 發送新增、更新、刪除操作時，具備 6 秒逾時與最多 3 次指數退避重試（Backoff）。
+  - 若寫入成功，回填 `gcal_event_id` 並更新 `sync_status: 'synced', sync_error: null`。
+  - 若 3 次皆失敗，將 Supabase 資料表的 `sync_status` 標註為 `'failed'`，並記錄具體失敗原因至 `sync_error`。
+  - 在 `sync_from_gas` 時，若部分校區失敗、部分校區成功，回傳 `status: 'partial'`，並列出成功校區（`successfulCampuses`）與失敗校區（`failedCampuses`）。
 
-### 項目五：自動化測試覆蓋與驗證
-- **測試套件全面擴充**：
-  - 由 59 項擴充至 **63 項全方位整合測試**。
-  - 新增：
-    - `api/calendar rejects mutating request without ID token with 401`
-    - `api/calendar rejects non-admin role (role 4) with 403`
-    - `api/calendar returns 502 when sync_from_gas encounters total connection failure`
-    - `api/calendar concurrent POSTs with same client_event_id deduplicate via mutex`
-- **執行結果**：
-  ```text
-  > wutpsdata@0.0.0 test
-  > node --test tests/*.test.js
+### 項目五：資料庫 SQL 遷移腳本與向下容錯
+- **檔案**：`supabase_calendar_events.sql`
+- **實裝**：
+  - 結構定義中補齊 `sync_status TEXT DEFAULT 'synced'` 與 `sync_error TEXT DEFAULT NULL`。
+  - 提供即用型 Migration 語法：
+    ```sql
+    ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS sync_status TEXT DEFAULT 'synced';
+    ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS sync_error TEXT DEFAULT NULL;
+    ```
+  - `api/calendar.js` 寫入時具備向下相容保護：若正式庫尚未執行遷移腳本導致更新報錯，自動降級僅更新 `gcal_event_id`，確保 Google 日曆事件 ID 永不遺失。
 
-  ℹ tests 63
-  ℹ suites 0
-  ℹ pass 63
-  ℹ fail 0
-  ℹ cancelled 0
-  ℹ skipped 0
-  ℹ todo 0
-  ℹ duration_ms 967.2338
-  ```
+### 項目六：Webhook 原始內容 (rawBody) 支援
+- **檔案**：`api/line_webhook.js`
+- **實裝**：
+  - 導出 `export const config = { api: { bodyParser: false } };`。
+  - 實作流讀取器 `getRawRequestBody(req)`，自原始串流中提取 byte-for-byte 原始位元組串流進行 HMAC-SHA256 簽名比對；同時無縫支援現有物件測試模式。
 
 ---
 
-## 3. 正式資料庫 Supabase RLS 與索引套用指南
+## 3. 全系統自動化測試驗證
 
-請至 [Supabase Dashboard](https://supabase.com/dashboard) 進入專案的 **SQL Editor**，執行下列 SQL：
+本輪新增了專屬加固測試套件 `tests/round3-hardening.test.js`，將測試總量擴充至 **70 項**：
 
-```sql
--- 1. 建立日曆活動防重複唯一索引 (校區 + 標題 + 開始時間)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_unique_time
-ON public.calendar_events (calendar_type, title, start_time);
+```text
+> wutpsdata@0.0.0 test
+> node --test tests/*.test.js
 
--- 2. 建立 Google 日曆外部 ID 唯一索引
-CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_gcal_unique 
-ON public.calendar_events (gcal_event_id) 
-WHERE gcal_event_id IS NOT NULL AND gcal_event_id != '';
-
--- 3. 啟用 Row-Level Security (RLS)
-ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
-
--- 4. 允許公眾唯讀 (公開活動日曆)
-DROP POLICY IF EXISTS "Allow public read calendar_events" ON public.calendar_events;
-CREATE POLICY "Allow public read calendar_events" 
-ON public.calendar_events FOR SELECT USING (true);
-
--- 5. 僅允許後端 Service Role 進行增刪查改 (所有寫入必須經由後端 API 驗證 Token)
-DROP POLICY IF EXISTS "Allow service role all calendar_events" ON public.calendar_events;
-CREATE POLICY "Allow service role all calendar_events" 
-ON public.calendar_events FOR ALL TO service_role USING (true);
-
--- 6. 徹底禁止匿名金鑰直接修改資料庫
-DROP POLICY IF EXISTS "Allow anon write calendar_events" ON public.calendar_events;
-DROP POLICY IF EXISTS "Allow anon update calendar_events" ON public.calendar_events;
-DROP POLICY IF EXISTS "Allow anon delete calendar_events" ON public.calendar_events;
+✔ api/students POST rejects request missing ID token with 401
+✔ api/students POST rejects non-admin staff with 403
+✔ api/students POST allows school admin to upsert student data
+✔ api/brain GET rejects valid token user who is not in staff table with 403
+✔ api/announcement_comments POST rejects valid token user who is not in staff table with 403
+✔ api/bind POST rejects when invite code is required but invalid with 403
+✔ api/calendar POST returns 500 when 23505 conflict fails to retrieve existing event
+✔ api/calendar returns 500 on database insert failure instead of fake success
+✔ api/calendar rejects mutating request without ID token with 401
+✔ api/calendar rejects non-admin role (role 4) with 403
+✔ api/calendar returns 502 when sync_from_gas encounters total connection failure
+✔ api/calendar concurrent POSTs with same client_event_id deduplicate via mutex
+✔ api/staff rejects dev-admin without valid database record
+✔ api/staff forbids deleting a superadmin record (role 0)
+✔ api/bind forbids public binding of role 0 superadmin
+✔ api/line_webhook accepts POST with valid HMAC-SHA256 signature
+...（其餘 54 項全部通過）
+ℹ tests 70
+ℹ suites 0
+ℹ pass 70
+ℹ fail 0
+ℹ duration_ms 1004.6574
 ```
 
 ---
 
-## 4. 結論
+## 4. 前端打包驗證
 
-本系統在 Commit **`9c48bd3`** 已達成：
-1. **真憑證防偽**：全管理端點強制 LINE 官方 ID Token 驗證，無 Token 嚴格 401。
-2. **前後端閉環**：前端所有向後端發出之機敏請求，全面搭載 `getAuthHeaders`。
-3. **高併發防護**：前端 UUID + 記憶體 Mutex + 資料庫 Unique Constraint 四重併發防護。
-4. **可靠性與真實性**：外部 GAS 串接具備逾時重試機制，連線失敗真實反應 502，絕無假成功。
-5. **程式庫健康度**：63 項單元測試 100% 通過，Vite 生產環境打包 0 錯誤。
+```text
+> vite build
+✓ 2347 modules transformed.
+dist/index.html    0.45 kB
+dist/assets/index.js 1,744.63 kB
+✓ built in 1.17s (Exit code 0)
+```

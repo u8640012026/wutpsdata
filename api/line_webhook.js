@@ -594,6 +594,31 @@ ${userMessage}
   };
 }
 
+// 輔助函式：自請求中讀取原始請求體字串 (Raw Body Stream Reader)
+async function getRawRequestBody(req) {
+  if (req.rawBody) {
+    return Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : String(req.rawBody);
+  }
+  if (typeof req.body === 'string') {
+    return req.body;
+  }
+  // 若為 Node.js Stream (例如自訂中繼或 Vercel with bodyParser: false)
+  if (typeof req[Symbol.asyncIterator] === 'function') {
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  }
+  return req.body ? JSON.stringify(req.body) : '';
+}
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 export default async function handler(req, res) {
   const channelSecret = (process.env.LINE_CHANNEL_SECRET || '').trim();
   const channelAccessToken = (process.env.LINE_CHANNEL_ACCESS_TOKEN || '').trim();
@@ -638,6 +663,8 @@ export default async function handler(req, res) {
     return res.status(405).send('Method Not Allowed');
   }
 
+  const rawPayload = await getRawRequestBody(req);
+
   // LINE 簽名嚴格驗證
   const signature = req.headers?.['x-line-signature'];
 
@@ -651,10 +678,6 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Forbidden: Missing LINE signature' });
     }
     try {
-      const rawPayload = req.rawBody 
-        ? (Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : req.rawBody)
-        : (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
-
       const hash = crypto
         .createHmac('SHA256', channelSecret)
         .update(rawPayload)
@@ -672,11 +695,12 @@ export default async function handler(req, res) {
 
   // 容錯解析 Body
   let bodyData = req.body;
-  if (typeof bodyData === 'string') {
+  if (typeof bodyData !== 'object' || bodyData === null) {
     try {
-      bodyData = JSON.parse(bodyData);
+      bodyData = JSON.parse(rawPayload);
     } catch (e) {
       console.error('Body parse error:', e);
+      bodyData = {};
     }
   }
 
