@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: '伺服器未設定機密金鑰 (SERVICE_ROLE_KEY)' });
   }
 
-  const line_uid = req.headers['x-line-uid'] || 'dev-admin';
+  const line_uid = req.headers['x-line-uid'];
 
   try {
     if (req.method === 'GET') {
@@ -21,11 +21,27 @@ export default async function handler(req, res) {
       }
       const { data, error } = await query;
       if (error) {
-        // 若資料表尚未建立，回傳空陣列而非報錯
         console.warn('brain_documents table query note:', error.message);
         return res.status(200).json([]);
       }
       return res.status(200).json(data || []);
+    }
+
+    // 寫入與刪除必須驗證教職員身分
+    if (req.method === 'POST' || req.method === 'DELETE') {
+      if (!line_uid) {
+        return res.status(401).json({ error: 'Unauthorized: 請先由 LINE 登入校務身分' });
+      }
+
+      const { data: staffData } = await supabase
+        .from('staff')
+        .select('id, name, department, role_tags')
+        .eq('line_uid', line_uid)
+        .maybeSingle();
+
+      if (!staffData) {
+        return res.status(403).json({ error: 'Forbidden: 僅限已建檔之教職員上傳或維護校務知識庫' });
+      }
     }
 
     if (req.method === 'POST') {
@@ -53,9 +69,8 @@ export default async function handler(req, res) {
         .single();
 
       if (error) {
-        console.warn('brain_documents insert note:', error.message);
-        // 若尚未建表，仍回傳建立成功的 record 結構供前端使用
-        return res.status(200).json({ ...newRecord, id: `local-${Date.now()}` });
+        console.error('brain_documents insert error:', error.message);
+        return res.status(500).json({ error: '知識庫文件儲存失敗：' + error.message });
       }
 
       return res.status(201).json(data);
@@ -67,7 +82,8 @@ export default async function handler(req, res) {
 
       const { error } = await supabase.from('brain_documents').delete().eq('id', id);
       if (error) {
-        console.warn('brain_documents delete note:', error.message);
+        console.error('brain_documents delete error:', error.message);
+        return res.status(500).json({ error: '知識庫文件刪除失敗：' + error.message });
       }
       return res.status(200).json({ success: true });
     }

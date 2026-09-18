@@ -106,11 +106,20 @@ export default function AdminDashboard() {
           throw new Error('未在 Excel 中找到符合格式的學生資料（需包含學號與姓名欄位）');
         }
 
+        let line_uid = '';
+        if (liff.isLoggedIn()) {
+          const profile = await liff.getProfile();
+          line_uid = profile?.userId || '';
+        }
+        if (!line_uid) {
+          throw new Error('請先登入 LINE LIFF 身分以執行管理員操作');
+        }
+
         const response = await fetch('/api/students', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            line_uid: liff.isLoggedIn() ? (await liff.getProfile()).userId : 'dev-admin',
+            line_uid,
             studentsData: formattedData
           })
         });
@@ -168,7 +177,15 @@ export default function AdminDashboard() {
           throw new Error('未找到有效資料，請確保包含「電子信箱」欄位');
         }
 
-        const line_uid = liff.isLoggedIn() ? (await liff.getProfile()).userId : 'dev-admin';
+        let line_uid = '';
+        if (liff.isLoggedIn()) {
+          const profile = await liff.getProfile();
+          line_uid = profile?.userId || '';
+        }
+        if (!line_uid) {
+          throw new Error('請先登入 LINE LIFF 身分以執行管理員操作');
+        }
+
         const response = await fetch('/api/staff?action=import', {
           method: 'POST',
           headers: { 
@@ -201,10 +218,13 @@ export default function AdminDashboard() {
   const handleExportBackup = async () => {
     setBackupStatus('正在產出全校資料庫備份檔...');
     try {
-      let uid = 'dev-admin';
+      let uid = '';
       if (liff.isLoggedIn()) {
         const p = await liff.getProfile();
-        uid = p.userId;
+        uid = p?.userId || '';
+      }
+      if (!uid) {
+        throw new Error('請先登入 LINE LIFF 身分以匯出備份');
       }
 
       // 取得教職員

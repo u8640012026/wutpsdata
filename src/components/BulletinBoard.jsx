@@ -23,7 +23,7 @@ export default function BulletinBoard() {
   // 權限判斷：校長(1)、主任(2)、組長(3) 或 管理者(0)
   const roleTags = getRoleTags(staffData);
   const canPost = isSuperAdmin(staffData) || ['1', '2', '3'].some(r => roleTags.includes(r));
-  const currentUserUid = liffProfile?.userId || 'dev-admin';
+  const currentUserUid = liffProfile?.userId || staffData?.line_uid || '';
   const currentUserName = staffData?.name || liffProfile?.displayName || '未知使用者';
 
   const [staffList, setStaffList] = useState([]);

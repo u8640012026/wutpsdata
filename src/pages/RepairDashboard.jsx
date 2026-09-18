@@ -89,7 +89,7 @@ export default function RepairDashboard() {
   const [staffList, setStaffList] = useState([]);
 
   // User info
-  const lineUid = liffProfile?.userId || 'dev-admin';
+  const lineUid = liffProfile?.userId || staffData?.line_uid || '';
   const isAdmin = canManageRepairs(staffData);
   const isSuper = isSuperAdmin(staffData);
 

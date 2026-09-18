@@ -29,7 +29,7 @@ export default function StaffList() {
   const { isDark } = useApp();
   const [staff, setStaff] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentUid, setCurrentUid] = useState('dev-admin');
+  const [currentUid, setCurrentUid] = useState('');
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
@@ -55,12 +55,17 @@ export default function StaffList() {
   const fetchStaff = async () => {
     setIsLoading(true);
     try {
-      let uid = 'dev-admin';
+      let uid = '';
       if (window.liff?.isLoggedIn()) {
         const profile = await window.liff.getProfile();
-        uid = profile.userId;
+        uid = profile?.userId || '';
       }
       setCurrentUid(uid);
+
+      if (!uid) {
+        setIsLoading(false);
+        return;
+      }
 
       const response = await fetch('/api/staff', {
         headers: { 'x-line-uid': uid }

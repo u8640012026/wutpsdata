@@ -11,18 +11,19 @@ export default async function handler(req, res) {
   if (!line_uid) return res.status(401).json({ error: 'Unauthorized: Missing LINE UID' });
 
   try {
-    let staffData = null;
-    let isSuper = false;
-    if (line_uid === 'dev-admin') {
-      isSuper = true;
-    } else {
-      const { data } = await supabase
-        .from('staff')
-        .select('*')
-        .eq('line_uid', line_uid)
-        .single();
-      staffData = data;
-      isSuper = isSuperAdmin(staffData);
+    const { data: staffData } = await supabase
+      .from('staff')
+      .select('*')
+      .eq('line_uid', line_uid)
+      .single();
+
+    if (!staffData) {
+      return res.status(403).json({ error: 'Forbidden: 查無此教職員身分' });
+    }
+
+    let isSuper = isSuperAdmin(staffData);
+    if (isSuper && process.env.SUPER_ADMIN_LINE_UID) {
+      isSuper = staffData.line_uid === process.env.SUPER_ADMIN_LINE_UID;
     }
 
     if (req.method === 'GET') {
@@ -48,6 +49,12 @@ export default async function handler(req, res) {
       // 刪除錯誤建立的帳號
       const { id } = req.body;
       if (!id) return res.status(400).json({ error: 'Missing ID' });
+
+      // 嚴禁刪除超級管理者
+      const { data: targetStaff } = await supabase.from('staff').select('role_tags').eq('id', id).single();
+      if (targetStaff && isSuperAdmin(targetStaff)) {
+        return res.status(403).json({ error: 'Forbidden: 超級管理者帳號為系統核心保護對象，無法於介面刪除' });
+      }
       
       const { error } = await supabase.from('staff').delete().eq('id', id);
       if (error) throw error;
@@ -58,6 +65,17 @@ export default async function handler(req, res) {
       // 變更權限或強制解除綁定
       const { id, updates } = req.body;
       if (!id || !updates) return res.status(400).json({ error: 'Missing parameters' });
+
+      // 嚴禁將超級管理者降權或篡改其綁定
+      const { data: targetStaff } = await supabase.from('staff').select('role_tags, line_uid').eq('id', id).single();
+      if (targetStaff && isSuperAdmin(targetStaff)) {
+        if (updates.role_tags !== undefined && !isSuperAdmin({ role_tags: updates.role_tags })) {
+          return res.status(403).json({ error: 'Forbidden: 無法將超級管理者降權' });
+        }
+        if (updates.line_uid !== undefined && updates.line_uid !== targetStaff.line_uid) {
+          return res.status(403).json({ error: 'Forbidden: 超級管理者的 LINE 綁定不可於此介面修改' });
+        }
+      }
       
       const { error } = await supabase.from('staff').update(updates).eq('id', id);
       if (error) throw error;

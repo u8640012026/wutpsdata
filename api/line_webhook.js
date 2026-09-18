@@ -601,11 +601,19 @@ export default async function handler(req, res) {
   const groqApiKey = (process.env.GROQ_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 
   if (req.method === 'GET') {
-    // 支援直接透過 URL 測試問答：GET /api/line_webhook?q=問題&engine=groq|gemini
+    // 支援直接透過 URL 測試問答：GET /api/line_webhook?q=問題&engine=groq|gemini (僅限測試環境或帶授權密鑰)
     const testQ = req.query?.q || req.query?.test;
     const forceEngine = (req.query?.engine || '').toLowerCase();
 
     if (testQ) {
+      const adminKey = req.headers?.['x-admin-key'] || req.query?.admin_key;
+      const isTestEnv = process.env.NODE_ENV === 'test' || !process.env.NODE_ENV;
+      const isAdminAuthorized = process.env.ADMIN_KEY && adminKey === process.env.ADMIN_KEY;
+
+      if (!isTestEnv && !isAdminAuthorized) {
+        return res.status(403).json({ error: 'Forbidden: 公開 AI 測試端點已關閉，僅供授權管理員或自動化測試使用' });
+      }
+
       const aiResult = await askSchoolAI(testQ, { geminiApiKey, groqApiKey, forceEngine });
       return res.status(200).json({
         service: '霧臺國小校務 LINE Webhook 雙引擎問答測試',
@@ -617,63 +625,12 @@ export default async function handler(req, res) {
       });
     }
 
-    let availableGeminiModels = [];
-    let modelsError = null;
-    if (geminiApiKey) {
-      try {
-        const mRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
-          headers: { 'x-goog-api-key': geminiApiKey }
-        });
-        if (mRes.ok) {
-          const mData = await mRes.json();
-          availableGeminiModels = (mData.models || []).map(m => ({
-            name: m.name.replace('models/', ''),
-            methods: m.supportedGenerationMethods || []
-          }));
-        } else {
-          modelsError = await mRes.text();
-        }
-      } catch (e) {
-        modelsError = e.message;
-      }
-    }
-
-    let availableGroqModels = [];
-    let groqError = null;
-    if (groqApiKey) {
-      try {
-        const gRes = await fetch('https://api.groq.com/openai/v1/models', {
-          headers: { Authorization: `Bearer ${groqApiKey}` }
-        });
-        if (gRes.ok) {
-          const gData = await gRes.json();
-          availableGroqModels = (gData.data || []).map(m => m.id);
-        } else {
-          groqError = await gRes.text();
-        }
-      } catch (e) {
-        groqError = e.message;
-      }
-    }
-
+    // 保活與健康檢查端點（供 GAS keepalive 預熱與監控使用，輕量不耗資源）
     return res.status(200).json({
-      service: '霧臺國小校務 LINE Webhook 雙引擎系統運行中',
-      version: '3.3.0 (Dual-Engine + Official Phone Enforced)',
-      architecture: '雙引擎高可用架構 (Google Gemini 主力 + Groq Llama 3.3 秒級自動備援)',
-      diagnostics: {
-        hasGeminiKey: !!geminiApiKey,
-        geminiKeyPrefix: geminiApiKey ? geminiApiKey.slice(0, 6) + '...' : '未設定',
-        geminiKeyType: geminiApiKey.startsWith('AQ.') ? 'Google Auth Key (最新標準)' : 'Standard Key',
-        hasGroqKey: !!groqApiKey,
-        groqKeyPrefix: groqApiKey ? groqApiKey.slice(0, 6) + '...' : '未設定',
-        availableGroqModels,
-        groqError,
-        availableGeminiModelsCount: availableGeminiModels.length,
-        availableGeminiModels: availableGeminiModels.map(m => m.name).slice(0, 20),
-        modelsError,
-        hasLineToken: !!channelAccessToken,
-        hasLineSecret: !!channelSecret
-      }
+      status: 'ok',
+      service: '霧臺國小校務 LINE Webhook',
+      version: '3.3.1 (Secured)',
+      timestamp: new Date().toISOString()
     });
   }
 
@@ -681,9 +638,12 @@ export default async function handler(req, res) {
     return res.status(405).send('Method Not Allowed');
   }
 
-  // LINE 簽名驗證
-  const signature = req.headers['x-line-signature'];
-  if (channelSecret && signature) {
+  // LINE 簽名嚴格驗證
+  const signature = req.headers?.['x-line-signature'];
+  if (channelSecret) {
+    if (!signature) {
+      return res.status(403).json({ error: 'Forbidden: Missing LINE signature' });
+    }
     try {
       const bodyString = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
       const hash = crypto
@@ -691,11 +651,13 @@ export default async function handler(req, res) {
         .update(bodyString)
         .digest('base64');
       
-      if (hash !== signature && process.env.NODE_ENV === 'production') {
-        console.warn('Signature verification mismatch, proceeding gracefully');
+      if (hash !== signature) {
+        console.warn('LINE signature mismatch');
+        return res.status(403).json({ error: 'Forbidden: Invalid LINE signature' });
       }
     } catch (err) {
       console.error('Signature error:', err);
+      return res.status(403).json({ error: 'Forbidden: Signature verification error' });
     }
   }
 

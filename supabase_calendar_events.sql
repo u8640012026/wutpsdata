@@ -37,7 +37,7 @@ ON public.calendar_events
 FOR SELECT 
 USING (true);
 
--- 政策 2：允許 Service Role 完全管理（後端 API 寫入、更新與刪除）
+-- 政策 2：允許 Service Role 完全管理（後端 API 經過身份校驗後寫入、更新與刪除）
 DROP POLICY IF EXISTS "Allow service role all calendar_events" ON public.calendar_events;
 CREATE POLICY "Allow service role all calendar_events" 
 ON public.calendar_events 
@@ -45,21 +45,8 @@ FOR ALL
 TO service_role 
 USING (true);
 
--- 政策 3：允許具備身分者由前端直接操作（相容 anon / authenticated）
+-- 政策 3：收緊安全防護，嚴禁 anon 直接進行寫入、更新與刪除（必須由後端 API 執行）
 DROP POLICY IF EXISTS "Allow anon write calendar_events" ON public.calendar_events;
-CREATE POLICY "Allow anon write calendar_events" 
-ON public.calendar_events 
-FOR INSERT 
-WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Allow anon update calendar_events" ON public.calendar_events;
-CREATE POLICY "Allow anon update calendar_events" 
-ON public.calendar_events 
-FOR UPDATE 
-USING (true);
-
 DROP POLICY IF EXISTS "Allow anon delete calendar_events" ON public.calendar_events;
-CREATE POLICY "Allow anon delete calendar_events" 
-ON public.calendar_events 
-FOR DELETE 
-USING (true);
+

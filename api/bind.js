@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isSuperAdmin } from '../src/lib/staffAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -28,10 +29,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: '找不到此 Email。請確認您輸入的信箱是否與學校建檔的相符（可能遺漏了 .tw 等後綴）。' });
     }
 
-    // 2. 如果存在，才將 LINE UID 寫入該筆資料完成綁定
+    // 2. 超級管理者帳號防護：嚴禁由外部公開表單自主綁定
+    if (isSuperAdmin(existingStaff)) {
+      return res.status(403).json({ error: '超級管理者帳號為系統核心身分，嚴禁由公開表單自主綁定，請由管理後台或雲端主控台配置。' });
+    }
+
+    // 3. 防覆蓋保護：若已綁定且 UID 不符，嚴禁直接搶佔覆蓋
+    if (existingStaff.line_uid && existingStaff.line_uid !== userId) {
+      return res.status(409).json({ error: '此信箱已綁定其他 LINE 帳號。為保障帳號安全，若需換綁請洽系統管理員重設。' });
+    }
+
+    // 4. 如果尚未綁定，或為原使用者重複綁定，才寫入 LINE UID
     const { error: updateError } = await supabase
       .from('staff')
-      .update({ line_uid: userId }) // 移除了 name: displayName，確保只更新 line_uid，保留原始真實姓名與職稱
+      .update({ line_uid: userId })
       .eq('id', existingStaff.id);
 
     if (updateError) throw updateError;

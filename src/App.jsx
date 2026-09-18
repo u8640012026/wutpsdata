@@ -178,9 +178,11 @@ function App() {
 
   useEffect(() => {
     if (isLoggedIn) {
-      const uid = liffProfile?.userId || 'dev-admin';
+      const uid = liffProfile?.userId || staffData?.line_uid;
       const userName = staffData?.name || liffProfile?.displayName;
-      fetchRepairBadge(uid, staffData);
+      if (uid) {
+        fetchRepairBadge(uid, staffData);
+      }
       fetchAdminBadge(userName);
     }
   }, [isLoggedIn, liffProfile, staffData, fetchRepairBadge, fetchAdminBadge]);
