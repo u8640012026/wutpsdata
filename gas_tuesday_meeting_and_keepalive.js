@@ -11,6 +11,7 @@
 
 // 霧臺國小校務系統 API 端點
 var VERCEL_API_URL = 'https://wutpsdata.vercel.app/api/calendar';
+var VERCEL_WEBHOOK_URL = 'https://wutpsdata.vercel.app/api/line_webhook';
 
 /**
  * 【任務 1】：自動排定下週二「教師晨會」
@@ -91,18 +92,26 @@ function autoScheduleNextTuesdayMeeting() {
 
 /**
  * 【任務 2】：定時保活探針 (Keep-Alive Heartbeat)
- * 頻率：建議每 10 分鐘執行一次
+ * 頻率：建議每 5~10 分鐘執行一次
  * 效益：
- * 1. 徹底消滅 Vercel 冷啟動延遲（隨時處於熱機狀態）。
+ * 1. 同時喚醒行事曆 API 與 LINE AI 機器人 Webhook，徹底消滅 Vercel 冷啟動延遲。
  * 2. 每 10 分鐘查詢一次 Supabase，永久防止 Supabase 免費專案因 7 天閒置而休眠。
  */
 function keepAliveHeartbeat() {
   try {
-    var res = UrlFetchApp.fetch(VERCEL_API_URL + '?type=only_all', {
+    // 1. 保活行事曆與 Supabase 資料庫
+    var calRes = UrlFetchApp.fetch(VERCEL_API_URL + '?type=only_all', {
       method: 'get',
       muteHttpExceptions: true
     });
-    Logger.log('保活心跳發送成功，HTTP 狀態碼：' + res.getResponseCode());
+    Logger.log('行事曆保活心跳成功，HTTP 狀態碼：' + calRes.getResponseCode());
+
+    // 2. 保活 LINE AI 自動問答 Webhook 實例
+    var webhookRes = UrlFetchApp.fetch(VERCEL_WEBHOOK_URL, {
+      method: 'get',
+      muteHttpExceptions: true
+    });
+    Logger.log('LINE AI Webhook 保活心跳成功，HTTP 狀態碼：' + webhookRes.getResponseCode());
   } catch (e) {
     Logger.log('保活心跳發送例外：' + e.message);
   }
