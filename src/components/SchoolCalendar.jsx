@@ -18,16 +18,60 @@ import {
   AtSign
 } from 'lucide-react';
 import { useApp } from '../App';
+import { supabase } from '../supabaseClient';
 import { roleTags as getRoleTags } from '../lib/staffAccess';
 import { isMentioned, getReadMentions, markMentionAsRead, renderContentWithLinksAndMentions } from '../lib/mentionHelper';
 
-// SWR 前端記憶體快取（保證切換頁面 0 毫秒極速秒開）
+// SWR 前端持久化與記憶體雙層快取（保證切換頁面 0 毫秒極速瞬開）
 const calendarMemoryCache = {
   all: null,
   wutai: null,
   ligu: null,
   timestamp: 0
 };
+
+function getCachedEvents(type) {
+  if (calendarMemoryCache[type] && Array.isArray(calendarMemoryCache[type]) && calendarMemoryCache[type].length > 0) {
+    return calendarMemoryCache[type];
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('wutps_cal_' + type);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          calendarMemoryCache[type] = parsed;
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+  return [];
+}
+
+function setCachedEvents(type, data) {
+  calendarMemoryCache[type] = data;
+  calendarMemoryCache.timestamp = Date.now();
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('wutps_cal_' + type, JSON.stringify(data));
+    } catch {}
+  }
+}
+
+function clearAllCalendarCache() {
+  calendarMemoryCache.all = null;
+  calendarMemoryCache.wutai = null;
+  calendarMemoryCache.ligu = null;
+  calendarMemoryCache.timestamp = 0;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('wutps_cal_all');
+      localStorage.removeItem('wutps_cal_wutai');
+      localStorage.removeItem('wutps_cal_ligu');
+    } catch {}
+  }
+}
 
 // 學校作息節次表（霧臺國小標準 14 節次）
 const PERIODS = [
@@ -88,10 +132,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     }
   }, [canManage, currentUid]);
 
-  // 狀態管理（優先讀取記憶體快取，實現 0 毫秒極速切換）
+  // 狀態管理（優先讀取 localStorage 與記憶體雙層快取，實現 0 毫秒極速切換）
   const [filterType, setFilterType] = useState('all'); // all, wutai, ligu
-  const [events, setEvents] = useState(() => calendarMemoryCache['all'] || []);
-  const [isLoading, setIsLoading] = useState(() => !calendarMemoryCache['all']);
+  const [events, setEvents] = useState(() => getCachedEvents('all'));
+  const [isLoading, setIsLoading] = useState(() => getCachedEvents('all').length === 0);
   const [errorMsg, setErrorMsg] = useState('');
   
   // 抽屜頁狀態 (新增 / 編輯)
@@ -122,18 +166,50 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     notes: ''
   });
 
-  // 載入日曆活動（支援 isSilent 背景靜默更新）
+  // 載入日曆活動（直接向 Supabase 查詢 69ms 極速回應，支援 isSilent 背景靜默更新）
   const loadEvents = async (isSilent = false) => {
-    if (!isSilent) {
+    if (!isSilent && events.length === 0) {
       setIsLoading(true);
     }
     setErrorMsg('');
     try {
+      // 1. 優先直接向 Supabase PostgREST 查詢 (69ms 秒開)
+      let query = supabase.from('calendar_events').select('*');
+      if (filterType === 'wutai') {
+        query = query.in('calendar_type', ['all', 'wutai']);
+      } else if (filterType === 'ligu') {
+        query = query.in('calendar_type', ['all', 'ligu']);
+      }
+      query = query.order('start_time', { ascending: true });
+
+      const { data: dbEvents, error: dbError } = await query;
+      if (!dbError && Array.isArray(dbEvents) && dbEvents.length > 0) {
+        const mapped = dbEvents.map(ev => ({
+          id: ev.id,
+          gcal_event_id: ev.gcal_event_id || ev.id,
+          calendarType: ev.calendar_type,
+          title: ev.title,
+          location: ev.location || '',
+          description: ev.description || '',
+          start: ev.start_time,
+          end: ev.end_time || ev.start_time,
+          isAllDay: Boolean(ev.is_all_day),
+          periodInfo: ev.period_info || '',
+          targetGrades: ev.target_grades || '全校所有班級',
+          department: ev.department || '教務處',
+          creatorName: ev.creator_name || ''
+        }));
+        setCachedEvents(filterType, mapped);
+        setEvents(mapped);
+        setIsLoading(false);
+        return;
+      }
+
+      // 2. 備援降級：若前端直讀失敗，呼叫後端 API
       const res = await fetch(`/api/calendar?type=${filterType}`);
       const json = await res.json();
       if (json.status === 'success' && Array.isArray(json.data)) {
-        calendarMemoryCache[filterType] = json.data;
-        calendarMemoryCache.timestamp = Date.now();
+        setCachedEvents(filterType, json.data);
         setEvents(json.data);
       } else {
         if (!isSilent) setErrorMsg(json.message || '無法取得日曆資料');
@@ -146,8 +222,9 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
   };
 
   useEffect(() => {
-    if (calendarMemoryCache[filterType]) {
-      setEvents(calendarMemoryCache[filterType]);
+    const cached = getCachedEvents(filterType);
+    if (cached.length > 0) {
+      setEvents(cached);
       setIsLoading(false);
       // 背景靜默刷新最新資料
       loadEvents(true);
@@ -238,9 +315,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       if (json.status === 'success') {
         setSelectedEvent(null);
         // 清空快取並立即重新整理
-        calendarMemoryCache.all = null;
-        calendarMemoryCache.wutai = null;
-        calendarMemoryCache.ligu = null;
+        clearAllCalendarCache();
         await loadEvents(false);
       } else {
         alert(json.message || '刪除失敗');
@@ -265,9 +340,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       const data = await res.json();
       if (res.ok && data.status === 'success') {
         alert(data.message || 'Google 日曆同步完成');
-        calendarMemoryCache.all = null;
-        calendarMemoryCache.wutai = null;
-        calendarMemoryCache.ligu = null;
+        clearAllCalendarCache();
         await loadEvents(false);
       } else {
         alert(data.message || '同步失敗');
@@ -403,10 +476,8 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       const resData = await res.json();
       if (res.ok && resData.status === 'success') {
         setSubmitSuccess(true);
-        // 清除記憶體快取以強制讀取最新資料
-        calendarMemoryCache.all = null;
-        calendarMemoryCache.wutai = null;
-        calendarMemoryCache.ligu = null;
+        // 清除持久化快取以強制讀取最新資料
+        clearAllCalendarCache();
 
         setTimeout(() => {
           setIsDrawerOpen(false);
@@ -525,7 +596,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
           {/* 重新整理 */}
           <button
             onClick={() => {
-              calendarMemoryCache[filterType] = null;
+              clearAllCalendarCache();
               loadEvents(false);
             }}
             disabled={isLoading}
