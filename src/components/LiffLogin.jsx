@@ -30,13 +30,15 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
     setIsBinding(true);
     
     try {
+      const idToken = (liff && typeof liff.isLoggedIn === 'function' && liff.isLoggedIn()) ? liff.getIDToken() : null;
       const response = await fetch('/api/bind', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: bindEmail,
           displayName: liffProfile.displayName,
-          userId: liffProfile.userId
+          userId: liffProfile.userId,
+          id_token: idToken
         })
       });
       

@@ -77,10 +77,11 @@ function App() {
 
   const checkUserRole = async (lineUid) => {
     try {
+      const idToken = (liff && typeof liff.isLoggedIn === 'function' && liff.isLoggedIn()) ? liff.getIDToken() : null;
       const response = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ line_uid: lineUid })
+        body: JSON.stringify({ line_uid: lineUid, id_token: idToken })
       });
       const data = await response.json();
       if (response.ok && data.role) {

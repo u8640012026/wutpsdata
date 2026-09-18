@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { isSuperAdmin } from '../src/lib/staffAccess.js';
+import { verifyLineIdToken } from './line_auth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || 'https://kxedexdzlnyqkeemepyu.supabase.co',
@@ -9,8 +10,16 @@ const supabase = createClient(
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
   
-  const { email, displayName, userId } = req.body;
+  const { email, displayName, userId, id_token } = req.body;
   if (!email || !userId) return res.status(400).json({ error: 'Missing parameters' });
+
+  // 若前端提供了 LINE ID Token，進行官方防偽憑證校驗
+  if (id_token) {
+    const tokenResult = await verifyLineIdToken(id_token, userId);
+    if (!tokenResult.valid) {
+      return res.status(401).json({ error: tokenResult.error });
+    }
+  }
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(500).json({ error: '伺服器未設定機密金鑰 (SERVICE_ROLE_KEY)' });

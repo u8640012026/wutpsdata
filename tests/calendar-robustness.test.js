@@ -195,3 +195,18 @@ test('Taipei timezone conversion handles midnight rollover across date boundary'
   assert.equal(dateStr, '2026-09-19');
   assert.equal(timeStr, '00:30');
 });
+
+test('calendarUtils parseToTaipeiParts correctly splits UTC ISO string', async () => {
+  const { parseToTaipeiParts } = await import('../src/components/calendar/calendarUtils.js');
+  const res1 = parseToTaipeiParts('2026-09-18T01:00:00.000Z');
+  assert.equal(res1.date, '2026-09-18');
+  assert.equal(res1.time, '09:00');
+
+  const res2 = parseToTaipeiParts('2026-09-18T16:30:00.000Z');
+  assert.equal(res2.date, '2026-09-19');
+  assert.equal(res2.time, '00:30');
+
+  const res3 = parseToTaipeiParts('2026-10-05', '08:30');
+  assert.equal(res3.date, '2026-10-05');
+  assert.equal(res3.time, '08:30');
+});
