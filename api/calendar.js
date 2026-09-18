@@ -78,7 +78,7 @@ async function fetchEventsFromGas(targetTypes = ['all', 'wutai', 'ligu']) {
   return combinedEvents;
 }
 
-// 向 Google Apps Script 發送寫入操作（新增、更新、刪除），支援 6 秒逾時與 3 次指數退避重試
+// 向 Google Apps Script 發送寫入操作（新增、更新、刪除），支援 6 秒逾時、3 次指數退避重試與業務狀態查驗
 async function sendGasWriteWithRetry(payload, maxAttempts = 3) {
   const errors = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -94,14 +94,33 @@ async function sendGasWriteWithRetry(payload, maxAttempts = 3) {
       });
       clearTimeout(timeoutId);
 
-      if (res.ok) {
-        const data = await res.json();
-        return { success: true, data };
+      if (!res.ok) {
+        throw new Error(`GAS HTTP 狀態碼異常: ${res.status}`);
       }
-      throw new Error(`GAS 端點回傳異常狀態碼: ${res.status}`);
+
+      const data = await res.json();
+
+      // 嚴格校驗 GAS 回傳之業務狀態 (HTTP 200 下回傳 status: error 亦視為業務失敗)
+      if (data && (data.status === 'error' || data.success === false || data.error)) {
+        const errorMsg = data.message || data.error || 'Google Apps Script 業務執行失敗';
+
+        // 區分永久性權限/配置錯誤（如 permission denied, unauthorized, invalid_grant），直接提早返回，不再重複重試
+        const isPermanent = /permission denied|unauthorized|forbidden|not found|invalid_grant|quota/i.test(errorMsg);
+        if (isPermanent) {
+          return { success: false, error: errorMsg, isPermanent: true, data };
+        }
+        throw new Error(errorMsg);
+      }
+
+      // 若為新增操作 (create)，另須確認回傳有效之 Google Event ID
+      if (payload?.action === 'create' && !data?.eventId && !data?.id) {
+        throw new Error('Google Apps Script 回應缺少有效 Google Event ID');
+      }
+
+      return { success: true, data };
     } catch (err) {
       clearTimeout(timeoutId);
-      errors.push(`第 ${attempt} 次重試失敗: ${err.message}`);
+      errors.push(`第 ${attempt} 次嘗試失敗: ${err.message}`);
       if (attempt < maxAttempts) {
         const delay = attempt * 150;
         await new Promise(r => setTimeout(r, delay));
@@ -145,7 +164,8 @@ export default async function handler(req, res) {
 
         const { data: events, error: dbError } = await query;
         if (!dbError && Array.isArray(events) && events.length > 0) {
-          const mapped = events.map(ev => ({
+          const activeEvents = events.filter(ev => !['pending_delete', 'failed_delete'].includes(ev.sync_status));
+          const mapped = activeEvents.map(ev => ({
             id: ev.id,
             gcal_event_id: ev.gcal_event_id || ev.id,
             calendarType: ev.calendar_type,
@@ -240,20 +260,28 @@ export default async function handler(req, res) {
         try {
           let { data: existing } = await supabase
             .from('calendar_events')
-            .select('id')
+            .select('id, sync_status')
             .eq('gcal_event_id', ev.id)
             .maybeSingle();
+
+          // 若本地此活動已被標記刪除（failed_delete 或 pending_delete），跳過拉取，避免幽靈活動復活
+          if (existing && ['failed_delete', 'pending_delete'].includes(existing.sync_status)) {
+            continue;
+          }
 
           // 強化比對：包含 calendar_type，防止跨校區同名同時間活動被誤合併
           if (!existing && ev.title && ev.start) {
             const { data: matchByTime } = await supabase
               .from('calendar_events')
-              .select('id')
+              .select('id, sync_status')
               .eq('title', ev.title)
               .eq('start_time', ev.start)
               .eq('calendar_type', ev.calendarType || 'all')
               .maybeSingle();
             if (matchByTime) {
+              if (['failed_delete', 'pending_delete'].includes(matchByTime.sync_status)) {
+                continue;
+              }
               existing = matchByTime;
             }
           }
@@ -325,24 +353,50 @@ export default async function handler(req, res) {
 
       if (existing) {
         gcalId = existing.gcal_event_id || eventId;
-        const { error: delErr } = await supabase.from('calendar_events').delete().eq('id', existing.id);
-        if (delErr) {
-          return res.status(500).json({ status: 'error', message: '資料庫刪除活動失敗：' + delErr.message });
-        }
+        // 先標記為 pending_delete 狀態，保留失敗重試與待同步紀錄
+        await supabase
+          .from('calendar_events')
+          .update({ sync_status: 'pending_delete', sync_error: null })
+          .eq('id', existing.id);
       } else {
         return res.status(404).json({ status: 'error', message: '查無此活動記錄，無法刪除' });
       }
 
-      // 背景非同步通知 GAS 刪除 Google 日曆事件（具備逾時控制與自動退避重試）
+      // 若有 Google 日曆外部 ID，執行可靠刪除流程
       if (gcalId) {
-        sendGasWriteWithRetry({
+        const gasResult = await sendGasWriteWithRetry({
           action: 'delete',
           eventId: gcalId,
-          calendarType: calendarType || 'all'
-        }).catch(err => console.warn('Background GAS delete failed:', err.message));
-      }
+          calendarType: calendarType || existing.calendar_type || 'all'
+        });
 
-      return res.status(200).json({ status: 'success', message: '活動已刪除' });
+        if (gasResult.success) {
+          // Google 確認刪除後才完成清理 (Hard Delete)
+          await supabase.from('calendar_events').delete().eq('id', existing.id);
+          return res.status(200).json({ status: 'success', message: '活動已刪除' });
+        } else {
+          // Google 刪除失敗：在資料庫保留失敗紀錄以供補做
+          await supabase
+            .from('calendar_events')
+            .update({
+              sync_status: 'failed_delete',
+              sync_error: gasResult.error || 'Google 日曆刪除失敗'
+            })
+            .eq('id', existing.id);
+
+          return res.status(200).json({
+            status: 'success',
+            warning: '本地活動已標記刪除，但 Google 日曆同步刪除失敗，已保存待重試紀錄',
+            message: '活動已刪除（Google 日曆同步留存失敗佇列）',
+            sync_status: 'failed_delete',
+            sync_error: gasResult.error
+          });
+        }
+      } else {
+        // 若無 Google ID，直接清理資料庫
+        await supabase.from('calendar_events').delete().eq('id', existing.id);
+        return res.status(200).json({ status: 'success', message: '活動已刪除' });
+      }
     }
 
     // ── 編輯活動 (PUT 或 POST with action: 'update') ──

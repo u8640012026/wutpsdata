@@ -1,91 +1,71 @@
-# 屏東縣霧臺國小校務系統 (wutpsdata) 第三輪代碼審核全面加固竣工報告
+# 屏東縣霧臺國小校務系統 (wutpsdata) 第四輪外部審查修復竣工報告
 
-本報告針對外部 AI（ChatGPT）對 Commit `51ca8a0`（包含 `9c48bd3`）進行第三輪隔離查核所提出之 **5 項未完全達標項目及「學生 POST」疑慮**，提供完整的架構說明、技術實現與測試數據。
-
----
-
-## 1. 疑慮釐清：「學生 POST」是什麼？
-
-> [!NOTE]
-> **「本系統沒有學生要登入的地方，為什麼報告說『學生 POST』？」**
->
-> 1. **全校學生從不需要、也無法登入本系統**：本系統為教職員校務行政與家長公開查詢之用，無學生帳號機制。
-> 2. **ChatGPT 報告所指的「學生 POST」**：是指**後台管理員在匯入或更新學生名冊（AdminDashboard -> 學生名冊匯入）時，瀏覽器向後端發送的 HTTP 請求端點為 `POST /api/students`**。
-> 3. **原先缺口**：先前的 `api/students.js` 中，查詢名冊（GET）強制驗證 Token，但匯入名冊（POST）卻保留了 `if (activeToken) { ... }` 判斷。這導致無 Token 者能藉由偽造 Header 繞過驗證寫入學生名冊。
-> 4. **現已修復**：`POST /api/students` 現已強制要求 LINE 官方 ID Token，並透過 `isSchoolAdmin(staffData)` 確保僅限校長、主任、組長或超級管理員可執行匯入。
+本報告針對外部 AI（ChatGPT）第四輪查核所指出之 **3 項具體缺口**（邀請碼拒絕條件、GAS 業務成功判定、刪除工作持久化），提供完整之實裝與驗證成果。
 
 ---
 
-## 2. 針對第三輪審核 5 大項目之實裝清單
+## 1. 針對第四輪 3 大項目之修補與實裝細節
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           第三輪審核 5 大項目修補矩陣                         │
+│                           第四輪審核 3 大項目修補矩陣                         │
 ├───────────────────┬───────────────────────────────┬─────────────────────────┤
-│ 審核項目          │ 第三輪判定 (51ca8a0)          │ 本次加固成果            │
+│ 審核項目          │ 第四輪判定 (acced33)          │ 本次加固成果            │
 ├───────────────────┼───────────────────────────────┼─────────────────────────┤
-│ 1. 學生匯入 Token │ 未完全完成：POST 仍可省略 Token│ 徹底拔除可選判斷，強制401│
-│ 2. 教職員授權閉環 │ 有 Token 不等於有教職員資格   │ brain/留言/綁定全面授權 │
-│ 3. 日曆併發與衝突 │ 重試換 UUID、23505可能回null  │ 表單ID持久化+23505防護   │
-│ 4. Google寫入重試 │ 背景寫入僅試一次，無狀態回報  │ 3次Backoff+部分校區狀態 │
-│ 5. 同步欄位與遷移 │ 缺少 sync_error 欄位 migration│ 補齊SQL遷移+降級容錯保護│
-│ 6. Webhook 原始體 │ 未擷取 rawBody                │ 支援 Stream/Raw HMAC驗證│
+│ 1. 邀請碼強制模式 │ 未配置正確碼時填任意字串放行  │ 嚴格拒絕未配置或不符授權│
+│ 2. GAS 業務失敗   │ HTTP 200 內含 error 誤判成功  │ 同時校驗 HTTP 與業務狀態│
+│ 3. 刪除失敗留痕   │ Google 刪除失敗後本地活動已空 │ 狀態標註 failed_delete  │
 └───────────────────┴───────────────────────────────┴─────────────────────────┘
 ```
 
-### 項目一：學生匯入 API (`POST /api/students`) 強制 Token 與管理員查核
-- **檔案**：`api/students.js`
-- **修復**：
-  - 徹底移除 `if (activeToken)` 可選邏輯，全面使用 `authenticateApiRequest(req)`。
-  - 無 Token 立即阻斷並回傳 `401 Unauthorized: {"error": "Missing LINE ID Token"}`。
-  - 驗證通過後，以解密出的 `auth.uid` 查詢教職員表，並呼叫 `isSchoolAdmin(staffData)`。非管理身分回傳 `403 Forbidden`。
-  - 稽核紀錄 `audit_logs` 統一寫入真實 `auth.uid`。
+### 項目一：邀請碼強制模式嚴格防冒領 (`api/bind.js`)
+- **原問題**：在 `REQUIRE_INVITE_CODE=true` 但資料庫未配置邀請碼時，填寫任意非空字串仍能綁定。
+- **修復邏輯**：
+  ```javascript
+  const providedCode = (req.body.invite_code || req.body.bind_code || '').trim();
+  const expectedCode = (existingStaff.bind_code || existingStaff.details?.bind_code || process.env.STAFF_INVITE_CODE || '').trim();
+  const isExplicitlyApproved = existingStaff.approved_for_binding === true || existingStaff.details?.approved_for_binding === true;
+  const isMandatoryMode = process.env.REQUIRE_INVITE_CODE === 'true' || process.env.NODE_ENV === 'production';
 
-### 項目二：LINE 身分不等於教職員資格（授權閉環）
-- **校務大腦查閱 (`api/brain.js` GET)**：
-  - 驗證 Token 成功後，額外查詢 `staff` 表；若為外部未建檔之 LINE 帳號，一律回傳 `403 Forbidden: 僅限已建檔之校內教職員查閱校務知識庫`。
-- **公告留言發布 (`api/announcement_comments.js` POST)**：
-  - 查無 `staff` 教職員身分者直接回傳 `403 Forbidden`，徹底禁止以「校務同仁」匿名或冒名發言。
-- **身分首次綁定 (`api/bind.js`)**：
-  - 加入授權碼/邀請碼查核機制（`invite_code` / `bind_code`）：若系統或同仁檔案配置了邀請碼，必須輸入相符驗證碼才能綁定，杜絕任意持有 LINE 帳號者冒領同仁公務信箱。
-  - 前端 `src/components/LiffLogin.jsx` 增加「綁定授權碼」欄位。
+  if (isMandatoryMode || expectedCode) {
+    // 情況 A：系統要求查驗，但尚未設定有效授權碼且未獲管理員直接核准 -> 嚴格拒絕綁定 (403)
+    if (!expectedCode && !isExplicitlyApproved) {
+      return res.status(403).json({ error: '此教職員帳號尚未配置有效授權碼或核准紀錄，無法進行自主綁定，請向學校系統管理員索取邀請碼。' });
+    }
+    // 情況 B：有授權碼，但使用者未填或填寫不相符 -> 拒絕綁定 (403)
+    if (expectedCode && (!providedCode || providedCode !== expectedCode)) {
+      return res.status(403).json({ error: '首次綁定授權碼 (邀請碼) 不正確。為保障教職員帳號安全，請向學校系統管理員索取綁定驗證碼。' });
+    }
+  }
+  ```
+- **測試結果**：當 `REQUIRE_INVITE_CODE=true` 且未設定邀請碼時，提交任意猜測字串立即回傳 `403 Forbidden`，無法繞過。
 
-### 項目三：日曆防重複完善與 23505 空指標保護
-- **前端重試 Client Request ID 保持**：
-  - `src/components/SchoolCalendar.jsx` 引入 `submissionIdRef`，表單開啟時生成唯一 UUID，在使用者重試或網路波動重新點擊時，**沿用同一個 `client_event_id`**，不重新產生新 ID。成功後自動重設。
-- **23505 衝突檢索防護**：
-  - `api/calendar.js` 在捕捉到 Postgres `23505` 唯一鍵衝突後，檢查二次查詢結果。若查詢發生錯誤或結果為 `null`，嚴格回傳 `500` 錯誤，**絕不回傳 `event: null` 假成功**。
+### 項目二：Google Apps Script 業務失敗判定與永久錯誤識別 (`api/calendar.js`)
+- **原問題**：GAS 回傳 HTTP 200 但 payload 內含 `{"status":"error","message":"permission denied"}` 時，曾被誤判為 `synced` 成功。
+- **修復內容**：
+  1. `sendGasWriteWithRetry` 同時查驗 HTTP 狀態碼與 JSON 業務狀態：
+     - 若 `data.status === 'error'` 或 `data.success === false`，認定為失敗。
+     - 區分**永久性權限/配置錯誤**（`permission denied`, `unauthorized`, `forbidden`, `not found`, `invalid_grant`），立即提早返回失敗，不再無謂重複嘗試。
+     - 若為暫時性連線異常，繼續進行最多 3 次指數退避重試。
+  2. 新增操作 (`create`) 嚴格查驗傳回之 `data.eventId` 或 `data.id` 是否有效。
+  3. 若 Google 寫入失敗，資料庫紀錄將如實標註為 `sync_status: 'failed'` 並留存 `sync_error`，絕不標為 `synced`。
 
-### 項目四：Google 背景寫入（新增/修改/刪除）重試與部分校區狀態
-- **檔案**：`api/calendar.js`
-- **實裝**：
-  - 建立 `sendGasWriteWithRetry(payload, maxAttempts = 3)`，背景向 Google Apps Script 發送新增、更新、刪除操作時，具備 6 秒逾時與最多 3 次指數退避重試（Backoff）。
-  - 若寫入成功，回填 `gcal_event_id` 並更新 `sync_status: 'synced', sync_error: null`。
-  - 若 3 次皆失敗，將 Supabase 資料表的 `sync_status` 標註為 `'failed'`，並記錄具體失敗原因至 `sync_error`。
-  - 在 `sync_from_gas` 時，若部分校區失敗、部分校區成功，回傳 `status: 'partial'`，並列出成功校區（`successfulCampuses`）與失敗校區（`failedCampuses`）。
-
-### 項目五：資料庫 SQL 遷移腳本與向下容錯
-- **檔案**：`supabase_calendar_events.sql`
-- **實裝**：
-  - 結構定義中補齊 `sync_status TEXT DEFAULT 'synced'` 與 `sync_error TEXT DEFAULT NULL`。
-  - 提供即用型 Migration 語法：
-    ```sql
-    ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS sync_status TEXT DEFAULT 'synced';
-    ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS sync_error TEXT DEFAULT NULL;
-    ```
-  - `api/calendar.js` 寫入時具備向下相容保護：若正式庫尚未執行遷移腳本導致更新報錯，自動降級僅更新 `gcal_event_id`，確保 Google 日曆事件 ID 永不遺失。
-
-### 項目六：Webhook 原始內容 (rawBody) 支援
-- **檔案**：`api/line_webhook.js`
-- **實裝**：
-  - 導出 `export const config = { api: { bodyParser: false } };`。
-  - 實作流讀取器 `getRawRequestBody(req)`，自原始串流中提取 byte-for-byte 原始位元組串流進行 HMAC-SHA256 簽名比對；同時無縫支援現有物件測試模式。
+### 項目三：Google 刪除失敗持久化留存與防幽靈活動 (`api/calendar.js`)
+- **原問題**：刪除活動時若 Google 刪除連線失敗，本地已被刪除，無法留下失敗紀錄，後續同步時活動可能復活。
+- **修復內容**：
+  1. **軟刪除準備狀態**：刪除前先更新活動狀態為 `sync_status: 'pending_delete'`。
+  2. **等待 Google 刪除確認**：`await sendGasWriteWithRetry` 等待 Google 日曆完成刪除。
+     - 若 Google 刪除成功：執行資料庫硬刪除清理 (`Hard Delete`)。
+     - 若 Google 刪除失敗（如 503）：**保留資料庫紀錄**，更新為 `sync_status: 'failed_delete'` 並記錄錯誤訊息，供後續重試機制補做。
+  3. **防幽靈活動復活**：
+     - `GET /api/calendar` 自動排除 `pending_delete` 與 `failed_delete` 活動，使用者在介面上立即感知活動已被移除。
+     - `sync_from_gas` 在從 Google 拉取活動時，主動比對並跳過已標記為 `failed_delete` 或 `pending_delete` 的活動，防止被刪除的活動重新復活。
 
 ---
 
-## 3. 全系統自動化測試驗證
+## 2. 全系統自動化測試驗證 (Node.js Test Runner)
 
-本輪新增了專屬加固測試套件 `tests/round3-hardening.test.js`，將測試總量擴充至 **70 項**：
+測試套件擴充至 **73 項全方位測試，全數通過 (100%)**：
 
 ```text
 > wutpsdata@0.0.0 test
@@ -97,6 +77,9 @@
 ✔ api/brain GET rejects valid token user who is not in staff table with 403
 ✔ api/announcement_comments POST rejects valid token user who is not in staff table with 403
 ✔ api/bind POST rejects when invite code is required but invalid with 403
+✔ api/bind POST rejects arbitrary string when REQUIRE_INVITE_CODE=true and no code configured
+✔ api/calendar PUT marks sync_status as failed when GAS returns HTTP 200 with error status
+✔ api/calendar DELETE preserves failed_delete status in database when GAS returns 503
 ✔ api/calendar POST returns 500 when 23505 conflict fails to retrieve existing event
 ✔ api/calendar returns 500 on database insert failure instead of fake success
 ✔ api/calendar rejects mutating request without ID token with 401
@@ -108,21 +91,21 @@
 ✔ api/bind forbids public binding of role 0 superadmin
 ✔ api/line_webhook accepts POST with valid HMAC-SHA256 signature
 ...（其餘 54 項全部通過）
-ℹ tests 70
+ℹ tests 73
 ℹ suites 0
-ℹ pass 70
+ℹ pass 73
 ℹ fail 0
-ℹ duration_ms 1004.6574
+ℹ duration_ms 1029.332
 ```
 
 ---
 
-## 4. 前端打包驗證
+## 3. 前端打包驗證
 
 ```text
 > vite build
 ✓ 2347 modules transformed.
 dist/index.html    0.45 kB
 dist/assets/index.js 1,744.63 kB
-✓ built in 1.17s (Exit code 0)
+✓ built in 1.15s (Exit code 0)
 ```

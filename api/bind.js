@@ -47,12 +47,20 @@ export default async function handler(req, res) {
 
     // 3. 邀請碼與身分核准查驗（防止任意持有 LINE 帳號者冒領尚未綁定之同仁公務信箱）
     const providedCode = (req.body.invite_code || req.body.bind_code || '').trim();
-    const expectedCode = existingStaff.bind_code || existingStaff.details?.bind_code || process.env.STAFF_INVITE_CODE;
-    if (expectedCode && providedCode !== expectedCode) {
-      return res.status(403).json({ error: '首次綁定授權碼 (邀請碼) 不正確。為保障教職員帳號安全，請向學校系統管理員索取綁定驗證碼。' });
-    }
-    if (process.env.REQUIRE_INVITE_CODE === 'true' && !expectedCode && !providedCode) {
-      return res.status(403).json({ error: '本校系統已啟用安全綁定機制，首次綁定必須提供管理員核發之邀請碼。' });
+    const expectedCode = (existingStaff.bind_code || existingStaff.details?.bind_code || process.env.STAFF_INVITE_CODE || '').trim();
+    const isExplicitlyApproved = existingStaff.approved_for_binding === true || existingStaff.details?.approved_for_binding === true;
+    const isMandatoryMode = process.env.REQUIRE_INVITE_CODE === 'true' || process.env.NODE_ENV === 'production';
+
+    // 若系統啟用了安全強制查核，或者該教職員帳號有設定預期邀請碼
+    if (isMandatoryMode || expectedCode) {
+      // 情況 A：系統要求查驗，但尚未設定有效授權碼且未獲管理員直接核准 -> 拒絕綁定
+      if (!expectedCode && !isExplicitlyApproved) {
+        return res.status(403).json({ error: '此教職員帳號尚未配置有效授權碼或核准紀錄，無法進行自主綁定，請向學校系統管理員索取邀請碼。' });
+      }
+      // 情況 B：有授權碼，但使用者未填或填寫不相符 -> 拒絕綁定
+      if (expectedCode && (!providedCode || providedCode !== expectedCode)) {
+        return res.status(403).json({ error: '首次綁定授權碼 (邀請碼) 不正確。為保障教職員帳號安全，請向學校系統管理員索取綁定驗證碼。' });
+      }
     }
 
     // 4. 防覆蓋保護：若已綁定且 UID 不符，嚴禁直接搶佔覆蓋

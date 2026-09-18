@@ -247,3 +247,155 @@ test('api/calendar POST returns 500 when 23505 conflict fails to retrieve existi
   assert.equal(statusCode, 500);
   assert.match(body.message, /併發衝突後檢索既有活動失敗/);
 });
+
+test('api/bind POST rejects arbitrary string when REQUIRE_INVITE_CODE=true and no code configured', async t => {
+  process.env.REQUIRE_INVITE_CODE = 'true';
+  t.after(() => { delete process.env.REQUIRE_INVITE_CODE; });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const address = new URL(String(url));
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's3', email: 'staff@school.edu.tw', role_tags: '4', line_uid: null });
+    }
+    throw new Error(`Unexpected call: ${table}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/bind.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'POST',
+      body: {
+        email: 'staff@school.edu.tw',
+        userId: 'some_line_uid',
+        id_token: 'test-token',
+        invite_code: 'random_attacker_guess'
+      }
+    },
+    {
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      send(v) { body = v; }
+    }
+  );
+
+  assert.equal(statusCode, 403);
+  assert.match(body.error, /尚未配置有效授權碼/);
+});
+
+test('api/calendar PUT marks sync_status as failed when GAS returns HTTP 200 with error status', async t => {
+  const originalFetch = globalThis.fetch;
+  let updatedPayload = null;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const address = new URL(String(url));
+    if (address.hostname === 'database.test') {
+      const table = address.pathname.split('/').pop();
+      if (table === 'staff') return json({ id: 's1', line_uid: 'admin_uid', role_tags: '0' });
+      if (table === 'calendar_events') {
+        if (init.method === 'PATCH') {
+          updatedPayload = JSON.parse(init.body);
+          return json([{ id: 'ev1', ...updatedPayload }]);
+        }
+        return json({ id: 'ev1', gcal_event_id: 'gcal_123', calendar_type: 'all' });
+      }
+    }
+    if (address.hostname.includes('script.google.com')) {
+      // GAS 回傳 HTTP 200，但內部包含業務錯誤
+      return json({ status: 'error', message: 'permission denied' }, 200);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'PUT',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        eventId: 'ev1',
+        title: '更新活動',
+        startTime: '2026-09-18T10:00:00+08:00'
+      }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  assert.equal(body.status, 'success');
+
+  // 等待非同步背景工作執行完畢
+  await new Promise(r => setTimeout(r, 60));
+  assert.ok(updatedPayload);
+  assert.equal(updatedPayload.sync_status, 'failed');
+  assert.match(updatedPayload.sync_error, /permission denied/);
+});
+
+test('api/calendar DELETE preserves failed_delete status in database when GAS returns 503', async t => {
+  const originalFetch = globalThis.fetch;
+  const updates = [];
+  let deletedFromDb = false;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const address = new URL(String(url));
+    if (address.hostname === 'database.test') {
+      const table = address.pathname.split('/').pop();
+      if (table === 'staff') return json({ id: 's1', line_uid: 'admin_uid', role_tags: '0' });
+      if (table === 'calendar_events') {
+        if (init.method === 'PATCH') {
+          const payload = JSON.parse(init.body);
+          updates.push(payload);
+          return json([{ id: 'ev_del', ...payload }]);
+        }
+        if (init.method === 'DELETE') {
+          deletedFromDb = true;
+          return json([{ id: 'ev_del' }]);
+        }
+        return json({ id: 'ev_del', gcal_event_id: 'gcal_del_999', calendar_type: 'all' });
+      }
+    }
+    if (address.hostname.includes('script.google.com')) {
+      // 模擬 Google 日曆連續回傳 503 伺服器忙碌
+      return json({ error: 'Service Unavailable' }, 503);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'DELETE',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        eventId: 'ev_del'
+      }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  // 本地活動嚴禁被直接硬刪除 (Hard Delete)
+  assert.equal(deletedFromDb, false);
+  // 檢查資料庫是否留存了 failed_delete 待重試紀錄
+  const failedRecord = updates.find(u => u.sync_status === 'failed_delete');
+  assert.ok(failedRecord);
+  assert.match(failedRecord.sync_error, /503/);
+});
+
