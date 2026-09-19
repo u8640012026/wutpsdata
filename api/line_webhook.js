@@ -745,6 +745,32 @@ export default async function handler(req, res) {
         continue;
       }
 
+      // ── 關鍵字攔截 1.5：若輸入「測試 / 測試網址 / dev / 測試版 / 測試後台」 ──
+      const isDevKeyword = [
+        '測試', '測試網址', 'dev', '測試版', '開發者', '測試後台', '!dev', '/dev', 'dev網址', '測試環境'
+      ].includes(lowerMsg);
+
+      if (isDevKeyword) {
+        const devReply = `🛠️【霧臺國小 校務系統 Dev 測試版入口】\n\n專供系統功能驗收與開發展示（此版本獨立於全校正式站）：\n\n📲 手機測試版（LINE LIFF 免登入）：\n👉 https://liff.line.me/2011376584-Qs53XYSD\n\n💻 電腦預覽網址：\n👉 https://wutpsdata-git-dev-wutai.vercel.app\n\n💡 提示：在測試版中您可以任意驗收最新功能，所有修改皆不會影響全校正在運作的正式站！`;
+        if (replyToken === 'test') {
+          return res.status(200).json({ status: 'ok', keyword: 'dev_menu', testReply: devReply });
+        }
+        if (channelAccessToken && replyToken) {
+          await fetch('https://api.line.me/v2/bot/message/reply', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${channelAccessToken}`
+            },
+            body: JSON.stringify({
+              replyToken: replyToken,
+              messages: [{ type: 'text', text: devReply }]
+            })
+          });
+        }
+        continue;
+      }
+
       // ── 關鍵字攔截 2：若輸入「選單 / 後台 / 系統 / 登入 / 網址 / 校務系統 / liff」 ──
       const isSystemKeyword = [
         '選單', '後台', '系統', '登入', '網址', '校務系統', '系統網址', 

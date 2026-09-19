@@ -14,7 +14,16 @@ import { LayoutDashboard, Wrench, Sun, Moon, Languages, LogOut, User, ChevronDow
 export const AppContext = createContext();
 export const useApp = () => useContext(AppContext);
 
-const LIFF_ID = '2011376584-Ia2rhpXU';
+const PROD_LIFF_ID = '2011376584-Ia2rhpXU';
+const DEV_LIFF_ID = '2011376584-Qs53XYSD';
+
+const isDevEnv = typeof window !== 'undefined' && (
+  window.location.hostname.includes('-dev') ||
+  window.location.hostname.includes('localhost') ||
+  window.location.hostname.includes('127.0.0.1')
+);
+
+const LIFF_ID = isDevEnv ? DEV_LIFF_ID : (import.meta.env.VITE_LIFF_ID || PROD_LIFF_ID);
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -232,6 +241,11 @@ function App() {
                 <LayoutDashboard size={14} className="text-white" />
               </div>
               <span className={`font-extrabold text-sm tracking-tight ${isDark ? 'text-stone-100' : 'text-stone-900'}`}>霧小校務系統</span>
+              {isDevEnv && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-500 text-slate-950 uppercase shadow-xs">
+                  Dev 測試版
+                </span>
+              )}
             </div>
 
             {/* 右：功能按鈕群 */}
