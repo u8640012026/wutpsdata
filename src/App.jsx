@@ -89,6 +89,18 @@ function App() {
     });
   }, []);
 
+  const [authError, setAuthError] = useState(null);
+
+  useEffect(() => {
+    try {
+      const savedDevRole = sessionStorage.getItem('wutps_dev_demo_role');
+      if (savedDevRole && ['admin', 'teacher', 'parent'].includes(savedDevRole)) {
+        setUserRole(savedDevRole);
+        setIsLoggedIn(true);
+      }
+    } catch {}
+  }, []);
+
   const checkUserRole = async (lineUid) => {
     try {
       const idToken = (liff && typeof liff.isLoggedIn === 'function' && liff.isLoggedIn()) ? liff.getIDToken() : null;
@@ -102,20 +114,33 @@ function App() {
         setUserRole(data.role);
         setStaffData(data.staffData || null);
         setIsLoggedIn(true);
+        setAuthError(null);
+      } else {
+        setAuthError(data.error || '身分查驗未通過');
       }
     } catch (err) {
       console.error('API 驗證失敗', err);
+      setAuthError('連線至校務伺服器進行驗證失敗');
     } finally {
       setIsCheckingRole(false);
     }
   };
 
   const handleLogin = (role) => {
+    try {
+      sessionStorage.setItem('wutps_dev_demo_role', role);
+    } catch {}
     setUserRole(role);
     setIsLoggedIn(true);
   };
 
   const handleLogout = () => {
+    try {
+      sessionStorage.removeItem('wutps_dev_demo_role');
+    } catch {}
+    if (liff && typeof liff.logout === 'function' && liff.isLoggedIn()) {
+      liff.logout();
+    }
     setUserRole(null);
     setStaffData(null);
     setIsLoggedIn(false);
@@ -327,7 +352,17 @@ function App() {
           )}
 
           {!isCheckingRole && !isLoggedIn && (
-            <LiffLogin onLogin={handleLogin} toggleLang={toggleLang} toggleTheme={toggleTheme} lang={lang} isDark={isDark} t={t} liffProfile={liffProfile} isLiffInit={isLiffInit} />
+            <LiffLogin
+              onLogin={handleLogin}
+              toggleLang={toggleLang}
+              toggleTheme={toggleTheme}
+              lang={lang}
+              isDark={isDark}
+              t={t}
+              liffProfile={liffProfile}
+              isLiffInit={isLiffInit}
+              authError={authError}
+            />
           )}
 
           {!isCheckingRole && isLoggedIn && currentTab === 'home' && (

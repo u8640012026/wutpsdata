@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import liff from '@line/liff';
 
-export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDark, t, liffProfile, isLiffInit }) {
+export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDark, t, liffProfile, isLiffInit, authError }) {
   const [bindEmail, setBindEmail] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [isBinding, setIsBinding] = useState(false);
@@ -15,6 +15,13 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
       setIsDev(true);
     }
   }, []);
+
+  const handleDevLogin = (role) => {
+    try {
+      sessionStorage.setItem('wutps_dev_demo_role', role);
+    } catch {}
+    onLogin(role);
+  };
 
   const handleLineLogin = () => {
     if (!liff.isLoggedIn()) {
@@ -93,7 +100,47 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
         <div className={`w-full max-w-sm p-6 rounded-3xl shadow-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
           <img src={liffProfile.pictureUrl} alt="profile" className="w-16 h-16 rounded-full mx-auto mb-3 shadow-sm border-2 border-white" />
           <h3 className="font-bold text-lg text-center mb-1">您好，{liffProfile.displayName}</h3>
-          <p className="text-xs text-center text-blue-500 mb-4 bg-blue-50 p-2 rounded-lg">這是您首次登入，請完成教職員信箱綁定以開通權限。</p>
+
+          {/* 若驗證有具體回傳錯誤，顯示清楚的提示與重登按鈕 */}
+          {authError ? (
+            <div className="mb-4 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-center">
+              <p className="text-xs font-bold text-amber-800 dark:text-amber-200 mb-1">
+                ⚠️ 身分驗證未通過或連線憑證已逾期
+              </p>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 mb-2.5">
+                {authError.includes('User not found')
+                  ? '資料庫白名單中查無此 LINE 帳號，請輸入您的學校公務信箱進行綁定；若您是超級管理者，請使用已授權之帳號登入。'
+                  : `原因：${authError}`}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (liff && typeof liff.logout === 'function') liff.logout();
+                  liff.login();
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition active:scale-95"
+              >
+                重新登入 LINE 刷新憑證
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-center text-blue-500 mb-4 bg-blue-50 dark:bg-blue-950/40 p-2 rounded-lg">
+              這是您首次登入，請完成教職員信箱綁定以開通權限。
+            </p>
+          )}
+
+          <div className="flex justify-center mb-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (liff && typeof liff.logout === 'function') liff.logout();
+                window.location.reload();
+              }}
+              className="text-[11px] text-stone-400 hover:text-red-500 underline transition"
+            >
+              登出目前 LINE 帳號 / 更換帳號
+            </button>
+          </div>
           
           {/* 個資同意書區塊 */}
           <div className={`h-32 overflow-y-auto p-3 text-xs mb-4 rounded-xl border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-400' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
@@ -153,14 +200,14 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
             <p className="text-xs font-bold text-red-500">🔧 開發者測試區</p>
           </div>
           <button 
-            onClick={() => onLogin('teacher')}
+            onClick={() => handleDevLogin('teacher')}
             className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-xl shadow-sm active:scale-[0.98] transition-transform mb-2 text-sm"
           >
             👨‍🏫 體驗導師版 (模擬)
           </button>
           <div className="flex gap-2">
-            <button onClick={() => onLogin('admin')} className="flex-1 bg-gray-400 hover:bg-gray-500 text-white text-xs py-2 rounded-lg active:scale-95 transition-transform">行政展示</button>
-            <button onClick={() => onLogin('parent')} className="flex-1 bg-gray-400 hover:bg-gray-500 text-white text-xs py-2 rounded-lg active:scale-95 transition-transform">家長展示</button>
+            <button onClick={() => handleDevLogin('admin')} className="flex-1 bg-gray-400 hover:bg-gray-500 text-white text-xs py-2 rounded-lg active:scale-95 transition-transform">行政展示</button>
+            <button onClick={() => handleDevLogin('parent')} className="flex-1 bg-gray-400 hover:bg-gray-500 text-white text-xs py-2 rounded-lg active:scale-95 transition-transform">家長展示</button>
           </div>
         </div>
       )}
