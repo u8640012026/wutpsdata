@@ -89,7 +89,15 @@ export default async function handler(req, res) {
       if (!existing) return res.status(404).json({ error: '公告不存在。' });
       if (!isSuperAdmin(staff) && existing.author_uid !== uid) return res.status(403).json({ error: '只能編修自己的公告。' });
       const updates = {};
-      if (typeof is_archived === 'boolean') updates.is_archived = is_archived;
+      if (typeof is_archived === 'boolean') {
+        updates.is_archived = is_archived;
+      } else if (expire_at !== undefined) {
+        // 如果展延時限（設為未來時間或 null 永久），且原先處於已下架狀態，自動解封移回最新公告區
+        const isFutureOrNever = expire_at === null || new Date(expire_at).getTime() > Date.now();
+        if (isFutureOrNever && existing.is_archived) {
+          updates.is_archived = false;
+        }
+      }
       if (typeof title === 'string') updates.title = title.trim();
       if (typeof content === 'string') updates.content = content;
       if (expire_at !== undefined) updates.expire_at = expire_at;

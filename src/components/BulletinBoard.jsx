@@ -121,10 +121,20 @@ export default function BulletinBoard() {
     setIsLoading(true);
     
     let expire_at = expireDays === 'keep' ? editingAnnouncement?.expire_at : null;
+    let is_archived_update = undefined;
+
     if (expireDays !== 'never' && expireDays !== 'keep') {
       const d = new Date();
       d.setDate(d.getDate() + parseInt(expireDays));
       expire_at = d.toISOString();
+      if (editingAnnouncement?.is_archived) {
+        is_archived_update = false; // 展延時限：解除歷史下架狀態，回到最新公告區
+      }
+    } else if (expireDays === 'never') {
+      expire_at = null;
+      if (editingAnnouncement?.is_archived) {
+        is_archived_update = false; // 改為永久有效：解除歷史下架狀態，回到最新公告區
+      }
     }
 
     try {
@@ -141,17 +151,24 @@ export default function BulletinBoard() {
           author_uid: currentUserUid,
           author_name: currentUserName,
           expire_at,
+          ...(is_archived_update !== undefined ? { is_archived: is_archived_update } : {}),
           attachments // 傳送附件陣列
         })
       });
       if (!res.ok) { const result = await res.json(); throw new Error(result.error || '公告儲存失敗'); }
       if (res.ok) {
+        const wasArchivedAndExtended = editingAnnouncement?.is_archived && is_archived_update === false;
         setIsComposing(false);
         setEditingAnnouncement(null);
         setNewTitle('');
         setNewContent('');
         setAttachments([]);
-        fetchAnnouncements();
+        
+        if (wasArchivedAndExtended) {
+          setActiveTab('active'); // 自動切換至最新公告區，讓同仁與管理員立即看到該則展延公告
+        } else {
+          fetchAnnouncements();
+        }
       }
     } catch (err) {
       alert('公告儲存失敗：' + err.message);
@@ -289,7 +306,9 @@ export default function BulletinBoard() {
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
             <div className="flex items-center gap-2">
-              <span className={`text-xs font-bold ${subTextColor}`}>自動下架：</span>
+              <span className={`text-xs font-bold ${subTextColor}`}>
+                {editingAnnouncement?.is_archived ? '展延時限 (移至最新公告)：' : '自動下架：'}
+              </span>
               <select 
                 value={expireDays}
                 onChange={e => setExpireDays(e.target.value)}
@@ -297,12 +316,16 @@ export default function BulletinBoard() {
                   isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-stone-50 border-stone-300 text-stone-900'
                 }`}
               >
-                {editingAnnouncement && <option value="keep">保留原下架時間</option>}
-                <option value="3">3 天後</option>
-                <option value="7">7 天後</option>
-                <option value="14">14 天後</option>
-                <option value="30">30 天後</option>
-                <option value="never">手動下架 (永久)</option>
+                {editingAnnouncement && (
+                  <option value="keep">
+                    {editingAnnouncement.is_archived ? '維持歷史下架 (不展延)' : '保留原下架時間'}
+                  </option>
+                )}
+                <option value="3">展延 3 天後</option>
+                <option value="7">展延 7 天後</option>
+                <option value="14">展延 14 天後</option>
+                <option value="30">展延 30 天後</option>
+                <option value="never">永久有效 (手動下架)</option>
               </select>
             </div>
             
@@ -532,6 +555,21 @@ function AnnouncementItem({ ann, currentUserUid, currentUserName, canArchive, on
       {/* 展開後的內容與留言區 */}
       {expanded && (
         <div className={`border-t ${borderColor} animate-fade-in`}>
+          {/* 時間與下架時限資訊列 */}
+          <div className={`px-4 pt-3 pb-2 flex items-center justify-between text-[11px] border-b ${
+            isDark ? 'border-slate-800/80 text-stone-400' : 'border-emerald-50 text-stone-500'
+          } flex-wrap gap-2`}>
+            <span>發布時間：{new Date(ann.created_at).toLocaleString('zh-TW', { hour12: false })}</span>
+            {ann.expire_at ? (
+              <span className={new Date(ann.expire_at) < new Date() ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-emerald-600 dark:text-emerald-400 font-bold'}>
+                {new Date(ann.expire_at) < new Date() ? '⚠️ 已過期下架：' : '⏳ 預計下架：'}
+                {new Date(ann.expire_at).toLocaleString('zh-TW', { hour12: false })}
+              </span>
+            ) : (
+              <span className="text-stone-400 font-medium">永久有效 (手動下架)</span>
+            )}
+          </div>
+
           {/* 內文 */}
           <div className={`p-4 text-sm leading-relaxed ${textColor}`}>
             {renderContentWithLinksAndMentions(ann.content, currentUserName, isDark)}

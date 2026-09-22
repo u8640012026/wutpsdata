@@ -132,6 +132,31 @@ test('superadmin may maintain another author announcement', async t => {
   assert.equal(result.body.is_archived,true);
 });
 
+test('extending expired announcement reactivates it by resetting is_archived to false', async t => {
+  const futureDate = new Date(Date.now() + 7 * 86400000).toISOString();
+  const result = await invoke(
+    t,
+    'announcements',
+    { role_tags: '3', name: 'Author' },
+    { method: 'PUT', body: { id: 'a1', expire_at: futureDate } },
+    { id: 'a1', author_uid: 'teacher', is_archived: true, expire_at: '2026-09-10T00:00:00Z' }
+  );
+  assert.equal(result.status, 200);
+  assert.equal(result.body.is_archived, false);
+});
+
+test('extending expired announcement to permanent (never expire) reactivates it', async t => {
+  const result = await invoke(
+    t,
+    'announcements',
+    { role_tags: '3', name: 'Author' },
+    { method: 'PUT', body: { id: 'a1', expire_at: null } },
+    { id: 'a1', author_uid: 'teacher', is_archived: true, expire_at: '2026-09-10T00:00:00Z' }
+  );
+  assert.equal(result.status, 200);
+  assert.equal(result.body.is_archived, false);
+});
+
 test('reporter cannot modify another person repair', async t => {
   const result = await invoke(t, 'repairs', { role_tags: '4' }, { method: 'PATCH', body: { id: 'r1', updates: { progress_logs: [] } } }, { id: 'r1', reporter_uid: 'other', status: 'open' });
   assert.equal(result.status, 403);
