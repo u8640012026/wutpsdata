@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Calendar as CalendarIcon, 
   CalendarDays,
+  Clock,
   Plus, 
   X, 
   RefreshCw, 
@@ -74,8 +75,8 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const submissionIdRef = useRef(null);
 
-  // 月份導航與關鍵字搜尋
-  const [selectedMonth, setSelectedMonth] = useState('all'); // 'all' 或 'YYYY-MM'
+  // 時段/月份導航與關鍵字搜尋：預設為 'upcoming_week' (近期一週，符合業界主流日程視圖)
+  const [selectedMonth, setSelectedMonth] = useState('upcoming_week'); // 'upcoming_week', 'YYYY-MM', 或 'all'
   const [searchQuery, setSearchQuery] = useState('');
 
   // 表單資料狀態
@@ -484,6 +485,19 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     return `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
   }, []);
 
+  // 計算自今日起算未來一週 (7 天內) 的有效活動數量
+  const upcomingWeekCount = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const weekEnd = todayStart + (7 * 86400000) + 86399000; // 7 天後的 23:59:59
+    return events.filter(ev => {
+      if (!ev.start) return false;
+      const evStart = new Date(ev.start).getTime();
+      const evEnd = ev.end ? new Date(ev.end).getTime() : evStart;
+      return evEnd >= todayStart && evStart <= weekEnd;
+    }).length;
+  }, [events]);
+
   // 依目前學年度學期與現有活動產生月份選單 (8月 ~ 1月 或 2月 ~ 7月 + 所有有活動的月份)
   const availableMonths = useMemo(() => {
     const baseMonthKeys = ['2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01'];
@@ -515,7 +529,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     });
   }, [events, currentMonthKey]);
 
-  // 過濾與分組活動 (支援校區、月份篩選、關鍵字快速搜尋)
+  // 過濾與分組活動 (支援校區、時段/月份篩選、關鍵字快速搜尋)
   const groupedEvents = useMemo(() => {
     let filtered = events;
 
@@ -534,7 +548,26 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       });
     }
 
-    // 2. 月份篩選
+    // 2. 時段 / 月份篩選
+    if (selectedMonth === 'upcoming_week') {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const weekEnd = todayStart + (7 * 86400000) + 86399000;
+      filtered = filtered.filter(ev => {
+        if (!ev.start) return false;
+        const evStart = new Date(ev.start).getTime();
+        const evEnd = ev.end ? new Date(ev.end).getTime() : evStart;
+        return evEnd >= todayStart && evStart <= weekEnd;
+      });
+
+      // 近期一週專用單一清晰看板群組
+      return [{
+        key: 'upcoming_week',
+        label: '🌟 近期一週活動 (自今日起 7 天內)',
+        events: filtered
+      }];
+    }
+
     if (selectedMonth !== 'all') {
       filtered = filtered.filter(ev => {
         if (!ev.start) return false;
@@ -674,27 +707,29 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
 
       {/* ── 月份選擇器與快速搜尋欄 ── */}
       <div className="space-y-3 p-3 rounded-2xl bg-stone-50/70 dark:bg-slate-900/50 border border-stone-200/70 dark:border-slate-800">
-        {/* 月份標籤滑動列 */}
+        {/* 月份與時段標籤滑動列 */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+          {/* 🌟 1. 近期一週 (業界標準：預設優先聚焦即將發生之行事) */}
           <button
-            onClick={() => setSelectedMonth('all')}
+            onClick={() => setSelectedMonth('upcoming_week')}
             className={`px-3.5 py-1.5 rounded-xl font-bold transition-all shrink-0 flex items-center gap-1.5 ${
-              selectedMonth === 'all'
-                ? 'bg-stone-900 dark:bg-white text-white dark:text-stone-900 shadow-xs'
-                : 'bg-white dark:bg-slate-800 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 border border-stone-200 dark:border-slate-700'
+              selectedMonth === 'upcoming_week'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800'
             }`}
           >
-            <CalendarDays size={13} />
-            <span>全部月份</span>
+            <Clock size={13} />
+            <span>近期一週 (今起7天)</span>
             <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-              selectedMonth === 'all'
-                ? 'bg-white/20 text-white dark:bg-stone-900/20 dark:text-stone-900'
-                : 'bg-stone-100 dark:bg-slate-700 text-stone-600 dark:text-stone-300'
+              selectedMonth === 'upcoming_week'
+                ? 'bg-white/25 text-white'
+                : 'bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200'
             }`}>
-              {events.length}
+              {upcomingWeekCount}
             </span>
           </button>
 
+          {/* 2. 各月份 (8月, 9月, 10月, 11月, 12月, 1月) */}
           {availableMonths.map((m) => {
             const isSelected = selectedMonth === m.key;
             const hasEvents = m.count > 0;
@@ -728,6 +763,26 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
               </button>
             );
           })}
+
+          {/* 3. 全部月份 (全學期) */}
+          <button
+            onClick={() => setSelectedMonth('all')}
+            className={`px-3.5 py-1.5 rounded-xl font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+              selectedMonth === 'all'
+                ? 'bg-stone-900 dark:bg-white text-white dark:text-stone-900 shadow-xs'
+                : 'bg-white dark:bg-slate-800 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 border border-stone-200 dark:border-slate-700'
+            }`}
+          >
+            <CalendarDays size={13} />
+            <span>全部月份</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+              selectedMonth === 'all'
+                ? 'bg-white/20 text-white dark:bg-stone-900/20 dark:text-stone-900'
+                : 'bg-stone-100 dark:bg-slate-700 text-stone-600 dark:text-stone-300'
+            }`}>
+              {events.length}
+            </span>
+          </button>
         </div>
 
         {/* 搜尋欄與活動狀態資訊 */}
@@ -751,19 +806,37 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
             )}
           </div>
 
-          <div className="text-xs text-stone-500 dark:text-stone-400 font-medium flex items-center gap-2">
-            {selectedMonth !== 'all' ? (
+          <div className="text-xs text-stone-500 dark:text-stone-400 font-medium flex items-center gap-2 flex-wrap">
+            {selectedMonth === 'upcoming_week' ? (
               <span className="flex items-center gap-1.5">
-                <span>指定月份：<strong className="text-stone-800 dark:text-stone-200">{availableMonths.find(m => m.key === selectedMonth)?.fullLabel}</strong></span>
+                <span>檢視模式：<strong className="text-emerald-700 dark:text-emerald-300">近期一週 (今起 7 天內，共 {totalFilteredCount} 則)</strong></span>
                 <button
-                  onClick={() => setSelectedMonth('all')}
+                  onClick={() => setSelectedMonth(currentMonthKey)}
+                  className="text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 hover:underline"
+                >
+                  (看本月完整行程)
+                </button>
+              </span>
+            ) : selectedMonth !== 'all' ? (
+              <span className="flex items-center gap-1.5">
+                <span>指定月份：<strong className="text-stone-800 dark:text-stone-200">{availableMonths.find(m => m.key === selectedMonth)?.fullLabel} (共 {totalFilteredCount} 則)</strong></span>
+                <button
+                  onClick={() => setSelectedMonth('upcoming_week')}
                   className="text-emerald-600 dark:text-emerald-400 hover:underline font-bold"
                 >
-                  (看全部月份)
+                  (回到近期一週)
                 </button>
               </span>
             ) : (
-              <span>共 <strong>{totalFilteredCount}</strong> 則活動</span>
+              <span className="flex items-center gap-1.5">
+                <span>全學期共 <strong>{totalFilteredCount}</strong> 則活動</span>
+                <button
+                  onClick={() => setSelectedMonth('upcoming_week')}
+                  className="text-emerald-600 dark:text-emerald-400 hover:underline font-bold"
+                >
+                  (回到近期一週)
+                </button>
+              </span>
             )}
           </div>
         </div>
@@ -789,25 +862,34 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
           <p className="text-sm font-bold text-stone-600 dark:text-stone-400">
             {searchQuery
               ? `找不到符合「${searchQuery}」的活動`
-              : selectedMonth !== 'all'
-                ? `${availableMonths.find(m => m.key === selectedMonth)?.fullLabel || ''} 尚無排定活動`
-                : '目前尚無近期排定之活動'}
+              : selectedMonth === 'upcoming_week'
+                ? '🌟 自今日起未來一週內尚無排定活動'
+                : selectedMonth !== 'all'
+                  ? `${availableMonths.find(m => m.key === selectedMonth)?.fullLabel || ''} 尚無排定活動`
+                  : '目前尚無排定活動'}
           </p>
           <div className="flex items-center justify-center gap-2 pt-2">
-            {selectedMonth !== 'all' && (
+            {selectedMonth === 'upcoming_week' ? (
               <button
-                onClick={() => setSelectedMonth('all')}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300 hover:bg-stone-50"
+                onClick={() => setSelectedMonth(currentMonthKey)}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50"
               >
-                查看全部月份
+                查看本月完整行事曆
               </button>
-            )}
+            ) : selectedMonth !== 'all' ? (
+              <button
+                onClick={() => setSelectedMonth('upcoming_week')}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50"
+              >
+                回到近期一週活動
+              </button>
+            ) : null}
             {canManage && (
               <button
                 onClick={handleOpenCreate}
                 className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs"
               >
-                ＋ 新增此月份活動
+                ＋ 新增活動
               </button>
             )}
           </div>

@@ -23,12 +23,17 @@ export default function CalendarEventCard({
   const mentionKey = `calendar:${ev.id}`;
   const isMeMentioned = isMentioned(`${ev.title} ${ev.description || ''}`, currentUserName);
   const isUnread = isMeMentioned && !readSet.has(mentionKey);
+  const isExpired = dateInfo.relative?.label === '已過期';
 
   return (
     <motion.div
       layout
       onClick={onSelect}
-      className={`p-4 rounded-2xl border bg-white dark:bg-slate-900 shadow-xs hover:shadow-md transition-all cursor-pointer border-l-4 ${badgeStyle.border} border-stone-200 dark:border-slate-800 active:scale-[0.99]`}
+      className={`p-4 rounded-2xl border shadow-xs hover:shadow-md transition-all cursor-pointer border-l-4 ${badgeStyle.border} ${
+        isExpired
+          ? 'bg-stone-50/70 dark:bg-slate-900/40 border-stone-200/60 dark:border-slate-800/60 opacity-60 hover:opacity-100'
+          : 'bg-white dark:bg-slate-900 border-stone-200 dark:border-slate-800'
+      } active:scale-[0.99]`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3.5 min-w-0">
