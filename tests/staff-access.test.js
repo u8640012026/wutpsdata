@@ -59,6 +59,16 @@ test('homeroom class normalizes current and legacy fields without guessing', () 
   assert.equal(studentClass({ grade: '三年級', class_name: '甲班' }), '三甲');
 });
 
+test('homeroom class supports all 12 WUTPS classes across main and branch campuses', () => {
+  const classes = [
+    '一甲', '二甲', '三甲', '四甲', '五甲', '六甲',
+    '一乙', '二乙', '三乙', '四乙', '五乙', '六乙'
+  ];
+  for (const c of classes) {
+    assert.equal(homeroomClass({ role_tags: '4', class_assigned: c }), c);
+  }
+});
+
 test('teacher receives only own class from student API', async t => {
   const result = await invoke(t, 'students', { role_tags: '4', class_assigned: '三甲' }, { method: 'GET' });
   assert.equal(result.status, 200);

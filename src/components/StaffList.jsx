@@ -1,9 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../App';
 import { getAuthHeaders } from '../lib/authHeader';
-import { Check, X, ShieldCheck, UserPlus, Edit3, Trash2, Unlink, Search, Save } from 'lucide-react';
+import { Check, X, ShieldCheck, UserPlus, Edit3, Trash2, Unlink, Search, Save, Settings, Plus, Tag, Building2 } from 'lucide-react';
 
-const DEPARTMENTS = [
+export const WUTPS_CLASSES = [
+  '一甲', '二甲', '三甲', '四甲', '五甲', '六甲',
+  '一乙', '二乙', '三乙', '四乙', '五乙', '六乙'
+];
+
+export const DEFAULT_DEPARTMENTS = [
   '校長室',
   '教務處',
   '學務處',
@@ -14,7 +19,7 @@ const DEPARTMENTS = [
   '專案/兼任'
 ];
 
-const AVAILABLE_ROLE_TAGS = [
+export const DEFAULT_ROLE_TAGS = [
   { tag: '0', label: '0 系統管理員', color: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' },
   { tag: '1', label: '1 校長', color: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' },
   { tag: '2', label: '2 處室主任', color: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' },
@@ -23,7 +28,9 @@ const AVAILABLE_ROLE_TAGS = [
   { tag: '6', label: '6 族語教師', color: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300' },
   { tag: '7', label: '7 英語教師', color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300' },
   { tag: '9', label: '9 特教教師', color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' },
-  { tag: '10', label: '10 輔導教師', color: 'bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-300' }
+  { tag: '10', label: '10 輔導教師', color: 'bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-300' },
+  { tag: '20', label: '20 專任教師', color: 'bg-lime-100 text-lime-800 dark:bg-lime-950 dark:text-lime-300' },
+  { tag: '40', label: '40 技工/修繕管理', color: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' }
 ];
 
 export default function StaffList() {
@@ -31,6 +38,103 @@ export default function StaffList() {
   const [staff, setStaff] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentUid, setCurrentUid] = useState('');
+
+  // 處室管理 state (持久化於 localStorage)
+  const [customDepartments, setCustomDepartments] = useState(() => {
+    try {
+      const saved = localStorage.getItem('wutps_custom_departments');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // 動態整合所有處室（預設 + 自訂 + 既有同仁處室）
+  const allDepartments = useMemo(() => {
+    const fromStaff = staff.map(s => s.department?.trim()).filter(Boolean);
+    return Array.from(new Set([...DEFAULT_DEPARTMENTS, ...customDepartments, ...fromStaff]));
+  }, [staff, customDepartments]);
+
+  const handleAddCustomDepartment = (deptName) => {
+    const trimmed = deptName?.trim();
+    if (!trimmed) return;
+    if (allDepartments.includes(trimmed)) return;
+    const next = [...customDepartments, trimmed];
+    setCustomDepartments(next);
+    try {
+      localStorage.setItem('wutps_custom_departments', JSON.stringify(next));
+    } catch {}
+  };
+
+  const handleDeleteCustomDepartment = (deptName) => {
+    const next = customDepartments.filter(d => d !== deptName);
+    setCustomDepartments(next);
+    try {
+      localStorage.setItem('wutps_custom_departments', JSON.stringify(next));
+    } catch {}
+  };
+
+  // 角色權限標籤管理 state (持久化於 localStorage)
+  const [customRoleTags, setCustomRoleTags] = useState(() => {
+    try {
+      const saved = localStorage.getItem('wutps_custom_role_tags');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // 動態整合所有可用角色標籤（預設 + 自訂 + 既有同仁標籤）
+  const allRoleTags = useMemo(() => {
+    const tagMap = new Map();
+    DEFAULT_ROLE_TAGS.forEach(rt => tagMap.set(rt.tag, rt));
+    customRoleTags.forEach(ct => tagMap.set(ct.tag, ct));
+
+    // 掃描資料庫中同仁身上是否有未定義之標籤碼
+    staff.forEach(s => {
+      if (s.role_tags) {
+        s.role_tags.split(/[,，、\s]+/).forEach(rawTag => {
+          const t = rawTag.trim();
+          if (t && !tagMap.has(t)) {
+            tagMap.set(t, {
+              tag: t,
+              label: `${t} (既有標籤)`,
+              color: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300'
+            });
+          }
+        });
+      }
+    });
+
+    return Array.from(tagMap.values());
+  }, [staff, customRoleTags]);
+
+  const handleAddCustomRoleTag = (tagStr, labelStr) => {
+    const tag = tagStr?.trim();
+    if (!tag) return;
+    const label = (labelStr || tag).trim();
+    if (allRoleTags.some(r => r.tag === tag)) return;
+
+    const newTagObj = {
+      tag,
+      label: label.startsWith(tag) ? label : `${tag} ${label}`,
+      color: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
+      isCustom: true
+    };
+    const next = [...customRoleTags, newTagObj];
+    setCustomRoleTags(next);
+    try {
+      localStorage.setItem('wutps_custom_role_tags', JSON.stringify(next));
+    } catch {}
+  };
+
+  const handleDeleteCustomRoleTag = (tag) => {
+    const next = customRoleTags.filter(t => t.tag !== tag);
+    setCustomRoleTags(next);
+    try {
+      localStorage.setItem('wutps_custom_role_tags', JSON.stringify(next));
+    } catch {}
+  };
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
@@ -48,6 +152,18 @@ export default function StaffList() {
     role_tags: '4'
   });
   const [isSaving, setIsSaving] = useState(false);
+
+  // Modal 內部動態新增處室與標籤狀態
+  const [isCustomDeptInput, setIsCustomDeptInput] = useState(false);
+  const [customDeptInputText, setCustomDeptInputText] = useState('');
+  const [customTagInputText, setCustomTagInputText] = useState('');
+
+  // 專屬「處室與標籤清單管理視窗」狀態
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [configTab, setConfigTab] = useState('departments'); // 'departments' | 'tags'
+  const [newDeptInput, setNewDeptInput] = useState('');
+  const [newTagCodeInput, setNewTagCodeInput] = useState('');
+  const [newTagLabelInput, setNewTagLabelInput] = useState('');
 
   useEffect(() => {
     fetchStaff();
@@ -86,10 +202,13 @@ export default function StaffList() {
 
   const handleOpenAddModal = () => {
     setEditingStaff(null);
+    setIsCustomDeptInput(false);
+    setCustomDeptInputText('');
+    setCustomTagInputText('');
     setFormData({
       name: '',
       email: '',
-      department: '教務處',
+      department: allDepartments[0] || '教務處',
       title: '',
       class_assigned: '',
       role_tags: '4'
@@ -99,15 +218,54 @@ export default function StaffList() {
 
   const handleOpenEditModal = (member) => {
     setEditingStaff(member);
+    setIsCustomDeptInput(false);
+    setCustomDeptInputText('');
+    setCustomTagInputText('');
     setFormData({
       name: member.name || '',
       email: member.email || '',
-      department: member.department || '教務處',
+      department: member.department || allDepartments[0] || '教務處',
       title: member.title || '',
       class_assigned: member.class_assigned || '',
       role_tags: member.role_tags || ''
     });
     setIsModalOpen(true);
+  };
+
+  const handleClassChange = (selectedClass) => {
+    let updatedTags = formData.role_tags;
+    if (selectedClass) {
+      const tagsArr = updatedTags ? updatedTags.split(',').map(t => t.trim()).filter(Boolean) : [];
+      if (!tagsArr.includes('4')) {
+        tagsArr.push('4');
+        tagsArr.sort((a, b) => {
+          const numA = parseInt(a, 10);
+          const numB = parseInt(b, 10);
+          return isNaN(numA) || isNaN(numB) ? a.localeCompare(b) : numA - numB;
+        });
+        updatedTags = tagsArr.join(',');
+      }
+    }
+    setFormData({ ...formData, class_assigned: selectedClass, role_tags: updatedTags });
+  };
+
+  const handleAddTagFromInline = () => {
+    const raw = customTagInputText.trim();
+    if (!raw) return;
+    const match = raw.match(/^([a-zA-Z0-9_-]+)\s*(.*)$/);
+    const code = match ? match[1] : raw;
+    const label = (match && match[2]) ? match[2] : raw;
+    handleAddCustomRoleTag(code, label);
+    const currentTags = formData.role_tags
+      ? formData.role_tags.split(',').map(t => t.trim()).filter(Boolean)
+      : [];
+    if (!currentTags.includes(code)) {
+      setFormData({
+        ...formData,
+        role_tags: [...currentTags, code].join(',')
+      });
+    }
+    setCustomTagInputText('');
   };
 
   const handleToggleRoleTag = (tag) => {
@@ -281,13 +439,25 @@ export default function StaffList() {
           </div>
         </div>
 
-        <button
-          onClick={handleOpenAddModal}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition shadow-sm self-start sm:self-auto active:scale-[0.98]"
-        >
-          <UserPlus size={15} />
-          <span>新增白名單同仁</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsConfigModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-slate-700 transition shadow-xs active:scale-[0.98]"
+            title="自訂全校處室清單與角色權限標籤"
+          >
+            <Settings size={14} className="text-purple-600 dark:text-purple-400" />
+            <span>處室與標籤管理</span>
+          </button>
+
+          <button
+            onClick={handleOpenAddModal}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition shadow-sm active:scale-[0.98]"
+          >
+            <UserPlus size={15} />
+            <span>新增白名單同仁</span>
+          </button>
+        </div>
       </div>
 
       {/* 搜尋與處室篩選列 */}
@@ -309,7 +479,7 @@ export default function StaffList() {
         </div>
 
         {/* 處室篩選膠囊選單 */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none max-w-full">
           <button
             onClick={() => setSelectedDeptFilter('all')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition ${
@@ -318,21 +488,24 @@ export default function StaffList() {
                 : 'bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
             }`}
           >
-            全部處室 ({staff.length})
+            全部 ({staff.length})
           </button>
-          {['教務', '學務', '總務', '校長', '勵古', '人事'].map(dept => (
-            <button
-              key={dept}
-              onClick={() => setSelectedDeptFilter(dept)}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                selectedDeptFilter === dept
-                  ? 'bg-purple-600 text-white shadow-xs'
-                  : 'bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
-              }`}
-            >
-              {dept}
-            </button>
-          ))}
+          {allDepartments.map(dept => {
+            const count = staff.filter(s => s.department?.includes(dept)).length;
+            return (
+              <button
+                key={dept}
+                onClick={() => setSelectedDeptFilter(dept)}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition ${
+                  selectedDeptFilter === dept
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'bg-stone-100 dark:bg-slate-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                {dept} {count > 0 && `(${count})`}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -400,7 +573,7 @@ export default function StaffList() {
                       <span className="text-[11px] text-stone-400 italic">無</span>
                     ) : (
                       tags.map(t => {
-                        const roleObj = AVAILABLE_ROLE_TAGS.find(r => r.tag === t);
+                        const roleObj = allRoleTags.find(r => r.tag === t);
                         return (
                           <span
                             key={t}
@@ -511,31 +684,91 @@ export default function StaffList() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-stone-500 dark:text-stone-400 mb-1">
-                    處室
-                  </label>
-                  <select
-                    value={formData.department}
-                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                    className={`w-full p-2.5 text-xs rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 ${
-                      isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'
-                    }`}
-                  >
-                    {DEPARTMENTS.map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-stone-500 dark:text-stone-400">
+                      處室 <span className="text-red-500">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomDeptInput(!isCustomDeptInput)}
+                      className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-0.5 font-bold"
+                    >
+                      <Plus size={11} />
+                      <span>{isCustomDeptInput ? '返回選單' : '自訂處室'}</span>
+                    </button>
+                  </div>
+
+                  {isCustomDeptInput ? (
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={customDeptInputText}
+                        onChange={(e) => setCustomDeptInputText(e.target.value)}
+                        placeholder="例：主計室 / 幼兒園"
+                        className={`flex-1 p-2 text-xs rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 ${
+                          isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'
+                        }`}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (customDeptInputText.trim()) {
+                              handleAddCustomDepartment(customDeptInputText.trim());
+                              setFormData({ ...formData, department: customDeptInputText.trim() });
+                              setCustomDeptInputText('');
+                              setIsCustomDeptInput(false);
+                            }
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (customDeptInputText.trim()) {
+                            handleAddCustomDepartment(customDeptInputText.trim());
+                            setFormData({ ...formData, department: customDeptInputText.trim() });
+                            setCustomDeptInputText('');
+                            setIsCustomDeptInput(false);
+                          }
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white whitespace-nowrap"
+                      >
+                        加入
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.department}
+                      onChange={(e) => {
+                        if (e.target.value === '__NEW__') {
+                          setIsCustomDeptInput(true);
+                        } else {
+                          setFormData({ ...formData, department: e.target.value });
+                        }
+                      }}
+                      className={`w-full p-2.5 text-xs rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 ${
+                        isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'
+                      }`}
+                    >
+                      {allDepartments.map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                      {formData.department && !allDepartments.includes(formData.department) && (
+                        <option value={formData.department}>{formData.department} (既有處室)</option>
+                      )}
+                      <option value="__NEW__">＋ 新增/自訂其他處室...</option>
+                    </select>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-stone-500 dark:text-stone-400 mb-1">
-                    職稱
+                    職稱 (可直接自訂鍵入)
                   </label>
                   <input
                     type="text"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="例：教務主任 / 導師"
+                    placeholder="例：教務主任 / 導師 / 技工"
                     className={`w-full p-2.5 text-xs rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 ${
                       isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'
                     }`}
@@ -543,35 +776,66 @@ export default function StaffList() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-stone-500 dark:text-stone-400 mb-1">
-                    任教班級 (若無則留空)
-                  </label>
-                  <input
-                    type="text"
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-stone-500 dark:text-stone-400">
+                      任教班級 (12班選單)
+                    </label>
+                    {formData.class_assigned && (
+                      <span className="text-[11px] text-teal-600 dark:text-teal-400 font-bold">
+                        自動標記導師(4)
+                      </span>
+                    )}
+                  </div>
+                  <select
                     value={formData.class_assigned}
-                    onChange={(e) => setFormData({ ...formData, class_assigned: e.target.value })}
-                    placeholder="例：3A / 一甲"
+                    onChange={(e) => handleClassChange(e.target.value)}
                     className={`w-full p-2.5 text-xs rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 ${
                       isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'
                     }`}
-                  />
+                  >
+                    <option value="">無 / 非班級導師 (科任/行政)</option>
+                    <optgroup label="── 霧臺國小本校 ──">
+                      {['一甲', '二甲', '三甲', '四甲', '五甲', '六甲'].map(cls => (
+                        <option key={cls} value={cls}>{cls}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="── 勵古百合分校 ──">
+                      {['一乙', '二乙', '三乙', '四乙', '五乙', '六乙'].map(cls => (
+                        <option key={cls} value={cls}>{cls}</option>
+                      ))}
+                    </optgroup>
+                    {formData.class_assigned && !WUTPS_CLASSES.includes(formData.class_assigned) && (
+                      <optgroup label="── 既有/非標準班級 ──">
+                        <option value={formData.class_assigned}>{formData.class_assigned}</option>
+                      </optgroup>
+                    )}
+                  </select>
                 </div>
               </div>
 
               {/* 權限標籤線上點選器 */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                   <label className="block text-xs font-bold text-stone-500 dark:text-stone-400">
-                    角色權限標籤 (點擊按鈕快速賦予 / 取消)
+                    角色權限標籤 (點擊快速賦予 / 取消)
                   </label>
-                  <span className="text-[11px] font-mono text-purple-600 dark:text-purple-400 font-bold">
-                    當前標籤值: {formData.role_tags || '無'}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsConfigModalOpen(true);
+                      setConfigTab('tags');
+                    }}
+                    className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-0.5 font-bold"
+                  >
+                    <Settings size={11} />
+                    <span>管理自訂標籤</span>
+                  </button>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 rounded-xl border bg-stone-50 dark:bg-slate-800/50 border-stone-200 dark:border-slate-700">
-                  {AVAILABLE_ROLE_TAGS.map(({ tag, label }) => {
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 rounded-xl border bg-stone-50 dark:bg-slate-800/50 border-stone-200 dark:border-slate-700 max-h-52 overflow-y-auto">
+                  {allRoleTags.map(({ tag, label }) => {
                     const isChecked = formData.role_tags
-                      ?.split(',')
+                      ?.split(/[,，、\s]+/)
                       .map(t => t.trim())
                       .includes(tag);
 
@@ -580,20 +844,62 @@ export default function StaffList() {
                         type="button"
                         key={tag}
                         onClick={() => handleToggleRoleTag(tag)}
-                        className={`p-2 rounded-lg text-xs font-bold flex items-center justify-between border transition ${
+                        className={`p-2 rounded-lg text-xs font-bold flex items-center justify-between border transition text-left ${
                           isChecked
                             ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
-                            : 'bg-white dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100'
+                            : 'bg-white dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-slate-700'
                         }`}
                       >
-                        <span>{label}</span>
-                        {isChecked && <Check size={13} className="text-white" />}
+                        <span className="truncate mr-1">{label}</span>
+                        {isChecked && <Check size={13} className="text-white flex-shrink-0" />}
                       </button>
                     );
                   })}
                 </div>
-                <p className="text-[11px] text-stone-400 mt-1">
-                  💡 說明：0 為最高管理員、1 為校長、2 為主任、3 為組長、4 為導師，支援複選（如：2,3 代表主任兼組長）。
+
+                {/* 快速新增自訂標籤 */}
+                <div className="mt-2.5 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={customTagInputText}
+                    onChange={(e) => setCustomTagInputText(e.target.value)}
+                    placeholder="新增自訂標籤 (例: 15 課後班 或 99)"
+                    className={`flex-1 p-2 text-xs rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 ${
+                      isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'
+                    }`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddTagFromInline();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddTagFromInline}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white whitespace-nowrap flex items-center gap-1"
+                  >
+                    <Plus size={13} />
+                    <span>新增並選取</span>
+                  </button>
+                </div>
+
+                {/* 進階手動編輯標籤字串 */}
+                <div className="mt-2.5 pt-2 border-t border-stone-200/60 dark:border-slate-700/60 flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-stone-400 whitespace-nowrap">進階手動編輯:</span>
+                  <input
+                    type="text"
+                    value={formData.role_tags}
+                    onChange={(e) => setFormData({ ...formData, role_tags: e.target.value })}
+                    placeholder="以逗號分隔，如 2,3,4"
+                    className={`flex-1 px-2.5 py-1 text-xs font-mono rounded-lg border outline-none focus:ring-2 focus:ring-purple-500 ${
+                      isDark ? 'bg-slate-800 border-slate-700 text-purple-300' : 'bg-white border-stone-300 text-purple-700'
+                    }`}
+                  />
+                </div>
+
+                <p className="text-[11px] text-stone-400 mt-1.5">
+                  💡 說明：0 為最高管理員、1 為校長、2 為主任、3 為組長、4 為導師、20 為專任教師、40 為修繕管理員；支援複選（如：2,3 代表主任兼組長）。
                 </p>
               </div>
 
@@ -615,6 +921,270 @@ export default function StaffList() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── 專屬「處室與角色標籤管理」Modal ── */}
+      {isConfigModalOpen && (
+        <div className="fixed inset-0 z-[130] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className={`w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden animate-fade-in ${
+            isDark ? 'bg-slate-900 border-slate-700 text-stone-100' : 'bg-white border-stone-200 text-stone-900'
+          }`}>
+            <div className={`p-4 border-b flex items-center justify-between ${
+              isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-purple-50/70 border-stone-100'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Settings size={18} className="text-purple-600 dark:text-purple-400" />
+                <h4 className="font-extrabold text-sm">全校處室與角色標籤自訂管理</h4>
+              </div>
+              <button
+                onClick={() => setIsConfigModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-stone-200 dark:hover:bg-slate-700 text-stone-400"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* 分頁切換 */}
+            <div className="flex border-b border-stone-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setConfigTab('departments')}
+                className={`flex-1 py-2.5 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition ${
+                  configTab === 'departments'
+                    ? 'border-purple-600 text-purple-600 dark:text-purple-400 bg-purple-50/50 dark:bg-purple-950/30'
+                    : 'border-transparent text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+                }`}
+              >
+                <Building2 size={14} />
+                <span>處室清單 ({allDepartments.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfigTab('tags')}
+                className={`flex-1 py-2.5 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition ${
+                  configTab === 'tags'
+                    ? 'border-purple-600 text-purple-600 dark:text-purple-400 bg-purple-50/50 dark:bg-purple-950/30'
+                    : 'border-transparent text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+                }`}
+              >
+                <Tag size={14} />
+                <span>角色標籤 ({allRoleTags.length})</span>
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+              {configTab === 'departments' ? (
+                <>
+                  <div>
+                    <h5 className="text-xs font-bold text-stone-500 dark:text-stone-400 mb-2">
+                      現有處室清單（可用於同仁分類與首頁篩選）
+                    </h5>
+                    <div className="flex flex-wrap gap-2">
+                      {allDepartments.map(dept => {
+                        const isDefault = DEFAULT_DEPARTMENTS.includes(dept);
+                        const isCustom = customDepartments.includes(dept);
+                        const staffCount = staff.filter(s => s.department?.includes(dept)).length;
+
+                        return (
+                          <div
+                            key={dept}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border ${
+                              isDark
+                                ? 'bg-slate-800 border-slate-700 text-stone-200'
+                                : 'bg-stone-50 border-stone-200 text-stone-800'
+                            }`}
+                          >
+                            <span>{dept}</span>
+                            {staffCount > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                                {staffCount}人
+                              </span>
+                            )}
+                            {isDefault ? (
+                              <span className="text-[10px] text-stone-400 font-normal">
+                                (預設)
+                              </span>
+                            ) : isCustom ? (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCustomDepartment(dept)}
+                                title="刪除此自訂處室"
+                                className="text-stone-400 hover:text-red-500 transition ml-0.5"
+                              >
+                                <X size={12} />
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-stone-400 font-normal">
+                                (既有同仁)
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 新增處室輸入框 */}
+                  <div className="pt-3 border-t border-stone-200 dark:border-slate-800">
+                    <label className="block text-xs font-bold text-stone-600 dark:text-stone-300 mb-1.5">
+                      新增自訂處室
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newDeptInput}
+                        onChange={(e) => setNewDeptInput(e.target.value)}
+                        placeholder="輸入處室名稱，例如：主計室、幼兒園、專案辦公室"
+                        className={`flex-1 p-2.5 text-xs rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 ${
+                          isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'
+                        }`}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (newDeptInput.trim()) {
+                              handleAddCustomDepartment(newDeptInput.trim());
+                              setNewDeptInput('');
+                            }
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (newDeptInput.trim()) {
+                            handleAddCustomDepartment(newDeptInput.trim());
+                            setNewDeptInput('');
+                          }
+                        }}
+                        className="flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition"
+                      >
+                        <Plus size={14} />
+                        <span>新增</span>
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-stone-400 mt-1">
+                      自訂處室將儲存於您的瀏覽器快取中，並即時顯示於下拉選單與篩選列。
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <h5 className="text-xs font-bold text-stone-500 dark:text-stone-400 mb-2">
+                      現有角色權限標籤清單
+                    </h5>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {allRoleTags.map(({ tag, label, color, isCustom }) => {
+                        const isDefault = DEFAULT_ROLE_TAGS.some(r => r.tag === tag);
+                        return (
+                          <div
+                            key={tag}
+                            className={`flex items-center justify-between p-2 rounded-xl border text-xs font-bold ${
+                              isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-stone-50 border-stone-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <span className={`px-2 py-0.5 rounded-md font-mono text-[11px] ${color}`}>
+                                {tag}
+                              </span>
+                              <span className="truncate">{label}</span>
+                            </div>
+                            {isDefault ? (
+                              <span className="text-[10px] text-stone-400 font-normal whitespace-nowrap ml-1">
+                                (預設)
+                              </span>
+                            ) : isCustom ? (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCustomRoleTag(tag)}
+                                title="刪除此自訂標籤"
+                                className="text-stone-400 hover:text-red-500 transition ml-1 p-1"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-stone-400 font-normal whitespace-nowrap ml-1">
+                                (同仁既有)
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 新增角色標籤輸入框 */}
+                  <div className="pt-3 border-t border-stone-200 dark:border-slate-800">
+                    <label className="block text-xs font-bold text-stone-600 dark:text-stone-300 mb-1.5">
+                      新增自訂角色權限標籤
+                    </label>
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      <div>
+                        <input
+                          type="text"
+                          value={newTagCodeInput}
+                          onChange={(e) => setNewTagCodeInput(e.target.value)}
+                          placeholder="代碼 (例: 15)"
+                          className={`w-full p-2.5 text-xs rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 ${
+                            isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'
+                          }`}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <input
+                          type="text"
+                          value={newTagLabelInput}
+                          onChange={(e) => setNewTagLabelInput(e.target.value)}
+                          placeholder="說明 (例: 課後照顧班教師)"
+                          className={`w-full p-2.5 text-xs rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 ${
+                            isDark ? 'bg-slate-800 border-slate-700 text-stone-100' : 'bg-white border-stone-300 text-stone-900'
+                          }`}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (newTagCodeInput.trim()) {
+                                handleAddCustomRoleTag(newTagCodeInput.trim(), newTagLabelInput.trim());
+                                setNewTagCodeInput('');
+                                setNewTagLabelInput('');
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newTagCodeInput.trim()) {
+                          handleAddCustomRoleTag(newTagCodeInput.trim(), newTagLabelInput.trim());
+                          setNewTagCodeInput('');
+                          setNewTagLabelInput('');
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition"
+                    >
+                      <Plus size={14} />
+                      <span>新增此權限標籤</span>
+                    </button>
+                    <p className="text-[11px] text-stone-400 mt-1.5">
+                      標籤代碼將儲存至資料庫的 <code>role_tags</code> 欄位，方便依特定標籤賦予系統功能或群組廣播。
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex justify-end p-4 border-t border-stone-200 dark:border-slate-800 bg-stone-50/50 dark:bg-slate-800/30">
+              <button
+                type="button"
+                onClick={() => setIsConfigModalOpen(false)}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition shadow-xs"
+              >
+                完成
+              </button>
+            </div>
           </div>
         </div>
       )}
