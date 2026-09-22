@@ -841,6 +841,12 @@ test('api/calendar background create preserves failed_delete when compensating G
     }
     if (table === 'calendar_events') {
       if (init.method === 'POST') {
+        const payload = JSON.parse(init.body || '{}');
+        if (payload[0]?.sync_status === 'failed_delete') {
+          failedDeleteRecorded = true;
+          recordedError = payload[0].sync_error;
+          return json(payload[0]);
+        }
         inserted = true;
         // 新增成功，初始為 pending_push
         return json({ id: 'ev_comp_1', sync_status: 'pending_push', calendar_type: 'all' });
@@ -1140,6 +1146,86 @@ test('api/calendar background create inserts orphan tracking record when local r
   assert.equal(orphanPayload.sync_status, 'failed_delete');
   assert.match(orphanPayload.sync_error, /quota exceeded/);
 });
+
+test('api/calendar background create preserves Google ID via upsert and does NOT delete Google event when DB query errors', async t => {
+  const originalFetch = globalThis.fetch;
+  let googleDeleteCalledCount = 0;
+  let upsertPreserved = false;
+  let preservedPayload = null;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const urlStr = String(url);
+    if (urlStr.includes('script.google.com')) {
+      const payload = JSON.parse(init.body || '{}');
+      if (payload.action === 'create') {
+        return json({ eventId: 'gas_preserve_123' });
+      }
+      if (payload.action === 'delete') {
+        googleDeleteCalledCount++;
+        return json({ status: 'success' });
+      }
+      return json({ success: true });
+    }
+
+    const address = new URL(urlStr);
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'admin_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'calendar_events') {
+      if (init.method === 'POST') {
+        const payload = JSON.parse(init.body || '{}');
+        if (payload[0]?.gcal_event_id === 'gas_preserve_123') {
+          upsertPreserved = true;
+          preservedPayload = payload[0];
+          return json(payload[0]);
+        }
+        return json({ id: 'ev_query_err_1', sync_status: 'pending_push', calendar_type: 'all' });
+      }
+      if (init.method === 'PATCH') {
+        // 模擬條件更新匹配 0 列
+        return json([]);
+      }
+      // GET: 模擬查詢資料庫發生連線逾時異常
+      return json({ message: 'connection timeout' }, 500);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        title: '查詢異常保護測試',
+        startTime: '2026-10-01T09:00:00+08:00',
+        endTime: '2026-10-01T10:00:00+08:00',
+        calendarType: 'all',
+        client_event_id: 'ev_query_err_1'
+      }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json() { return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  // 等待背景 Promise 完成重試（100ms+200ms+300ms）與 upsert 保存
+  await new Promise(r => setTimeout(r, 1000));
+
+  assert.equal(googleDeleteCalledCount, 0, 'Google delete MUST NOT be called when database query encounters an error');
+  assert.equal(upsertPreserved, true, 'Google ID must be safely preserved in database via upsert');
+  assert.equal(preservedPayload.gcal_event_id, 'gas_preserve_123');
+  assert.equal(preservedPayload.sync_status, 'pending_push');
+  assert.match(preservedPayload.sync_error, /連線異常|connection timeout/);
+});
+
 
 
 
