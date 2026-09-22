@@ -7,6 +7,7 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
   const [isBinding, setIsBinding] = useState(false);
   const [hasAgreed, setHasAgreed] = useState(false);
   const [isDev, setIsDev] = useState(false);
+  const [bindError, setBindError] = useState(null);
 
   useEffect(() => {
     // 檢查網址是否有 ?dev=true 來開啟開發者模式
@@ -34,8 +35,10 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
       alert('請先閱讀並勾選同意隱私權條款');
       return;
     }
-    if (!bindEmail || !liffProfile) return;
+    const clean = bindEmail.trim().toLowerCase();
+    if (!clean || !liffProfile) return;
     setIsBinding(true);
+    setBindError(null);
     
     try {
       const idToken = (liff && typeof liff.isLoggedIn === 'function' && liff.isLoggedIn()) ? liff.getIDToken() : null;
@@ -43,7 +46,7 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: bindEmail,
+          email: clean,
           displayName: liffProfile.displayName,
           userId: liffProfile.userId,
           id_token: idToken,
@@ -57,6 +60,7 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
       alert('綁定成功！請重新整理畫面。');
       window.location.reload();
     } catch (err) {
+      setBindError(err.message);
       alert('綁定失敗: ' + err.message);
       setIsBinding(false);
     }
@@ -178,6 +182,24 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
               onChange={(e) => setInviteCode(e.target.value)}
               disabled={!hasAgreed}
             />
+
+            {bindError && (
+              <div className="p-3 rounded-2xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-left">
+                <p className="text-xs font-bold text-red-700 dark:text-red-300 mb-1 flex items-center gap-1">
+                  <span>❌ 綁定失敗</span>
+                </p>
+                <p className="text-[12px] text-red-600 dark:text-red-200 leading-relaxed break-words font-medium">
+                  {bindError}
+                </p>
+                <div className="mt-2 text-[11px] text-stone-500 dark:text-stone-400 space-y-0.5 border-t border-red-200/50 dark:border-red-800/50 pt-1.5">
+                  <p className="font-bold text-stone-600 dark:text-stone-300">💡 排查指引：</p>
+                  <p>1. 請檢查信箱與學校白名單登錄是否相符（@wutps.ptc.edu.tw）。</p>
+                  <p>2. 若曾換過手機或重新安裝 LINE，請洽管理員於後台點「解綁」後重試。</p>
+                  <p>3. 若提示連線逾期，請點上方「重新登入 LINE 刷新憑證」。</p>
+                </div>
+              </div>
+            )}
+
             <button 
               onClick={handleBind}
               disabled={isBinding || !hasAgreed || !bindEmail}
