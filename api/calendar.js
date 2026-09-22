@@ -13,6 +13,151 @@ const GAS_URL = process.env.CALENDAR_GAS_URL || 'https://script.google.com/macro
 // 全域進行中請求互斥鎖 (In-Flight Request Mutex for Concurrency Protection)
 const inFlightCreations = new Map();
 
+// 可恢復之待重試工作佇列 (In-Memory Recovery Queue for Failed Sync / Persistence Operations)
+export const pendingSyncRecoveries = new Map();
+
+// 統一更新活動輔助函式（具備指數退避重試、錯誤校驗與既有狀態保護）
+export async function updateCalendarEventWithRetry(eventId, updateFields, maxAttempts = 3) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await supabase
+      .from('calendar_events')
+      .update(updateFields)
+      .eq('id', eventId)
+      .select('id, sync_status, calendar_type');
+
+    if (!res.error) {
+      return { success: true, data: res.data };
+    }
+    lastErr = res.error;
+    console.error(`[Calendar Sync] Update attempt ${attempt} for event ${eventId} failed:`, res.error.message);
+    if (attempt < maxAttempts) {
+      await new Promise(r => setTimeout(r, attempt * 100));
+    }
+  }
+  return { success: false, error: lastErr };
+}
+
+// 統一持久化追蹤紀錄輔助函式（具備主鍵衝突原子 upsert、3次退避重試與失敗保留佇列）
+export async function upsertCalendarTrackingWithRetry(trackingRecord, maxAttempts = 3) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await supabase
+      .from('calendar_events')
+      .upsert([trackingRecord], { onConflict: 'id' })
+      .select('id, sync_status');
+
+    if (!res.error) {
+      if (pendingSyncRecoveries.has(trackingRecord.id)) {
+        pendingSyncRecoveries.delete(trackingRecord.id);
+      }
+      return { success: true, data: res.data };
+    }
+    lastErr = res.error;
+    console.error(`[Calendar Sync] Upsert tracking attempt ${attempt} for event ${trackingRecord.id} failed:`, res.error.message);
+    if (attempt < maxAttempts) {
+      await new Promise(r => setTimeout(r, attempt * 100));
+    }
+  }
+
+  // 重試耗盡：將工作登記至待恢復佇列，供日後重試與排程清理，確保持久化保證！
+  pendingSyncRecoveries.set(trackingRecord.id, {
+    ...trackingRecord,
+    failedAt: Date.now()
+  });
+
+  return { success: false, error: lastErr };
+}
+
+// 處理待恢復工作佇列（可由定時器、新請求或測試調用）
+export async function processPendingSyncRecoveries() {
+  if (pendingSyncRecoveries.size === 0) return { processed: 0, successful: 0 };
+  let processed = 0;
+  let successful = 0;
+
+  for (const [id, job] of Array.from(pendingSyncRecoveries.entries())) {
+    processed++;
+    try {
+      if (job.action === 'compensating_delete') {
+        const gasResult = await sendGasWriteWithRetry({
+          action: 'delete',
+          eventId: job.gcal_event_id,
+          calendarType: job.calendar_type || job.calendarType || 'all'
+        });
+        const isCompensated = gasResult?.success || (
+          gasResult?.error && (
+            gasResult.error.toLowerCase().includes('not found') ||
+            gasResult.error.includes('404')
+          )
+        );
+        if (isCompensated) {
+          await supabase.from('calendar_events').delete().eq('id', id);
+          pendingSyncRecoveries.delete(id);
+          successful++;
+          continue;
+        }
+      }
+
+      if (job.action === 'sync_gcal_id') {
+        const { data: curRow } = await supabase
+          .from('calendar_events')
+          .select('id, sync_status, calendar_type')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (curRow && curRow.sync_status === 'pending_delete') {
+          const gasResult = await sendGasWriteWithRetry({
+            action: 'delete',
+            eventId: job.gcal_event_id,
+            calendarType: curRow.calendar_type || job.calendar_type || 'all'
+          });
+          if (gasResult?.success || gasResult?.error?.includes('404')) {
+            await supabase.from('calendar_events').delete().eq('id', id);
+            pendingSyncRecoveries.delete(id);
+            successful++;
+            continue;
+          }
+        } else if (curRow) {
+          const { error: upErr } = await supabase
+            .from('calendar_events')
+            .update({ gcal_event_id: job.gcal_event_id, sync_status: 'synced', sync_error: null })
+            .eq('id', id);
+          if (!upErr) {
+            pendingSyncRecoveries.delete(id);
+            successful++;
+            continue;
+          }
+        }
+      }
+
+      // 預設或降級：嘗試 upsert 追蹤紀錄
+      const trackingRecord = {
+        id: job.id,
+        gcal_event_id: job.gcal_event_id,
+        title: job.title || '[待恢復活動]',
+        calendar_type: job.calendar_type || job.calendarType || 'all',
+        start_time: job.start_time || job.startTime || new Date().toISOString(),
+        end_time: job.end_time || job.endTime || job.start_time || job.startTime || new Date().toISOString(),
+        sync_status: job.sync_status || 'failed_delete',
+        sync_error: job.sync_error || '從待恢復佇列重新持久化'
+      };
+
+      const { error: upsertErr } = await supabase
+        .from('calendar_events')
+        .upsert([trackingRecord], { onConflict: 'id' });
+
+      if (!upsertErr) {
+        pendingSyncRecoveries.delete(id);
+        successful++;
+      }
+    } catch (e) {
+      console.error(`[Calendar Recovery] Failed to recover job ${id}:`, e.message);
+    }
+  }
+
+  return { processed, successful };
+}
+
 // 從 GAS 拉取所有活動的輔助函式（具備指數退避重試、逾時控制與失敗真實識別）
 async function fetchEventsFromGas(targetTypes = ['all', 'wutai', 'ligu']) {
   let anySuccess = false;
@@ -140,6 +285,10 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (pendingSyncRecoveries.size > 0) {
+      processPendingSyncRecoveries().catch(e => console.warn('[Calendar Recovery] Background process note:', e.message));
+    }
+
     // ── 讀取活動 (GET)：優先 Supabase，若無資料或異常則降級回 GAS ──
     if (req.method === 'GET') {
       const type = (req.query.type || 'all').toLowerCase();
@@ -735,38 +884,61 @@ export default async function handler(req, res) {
               await new Promise(r => setTimeout(r, qAttempt * 100));
             }
 
-            // 致命缺陷防護：資料庫查詢失敗時，嚴禁假定使用者要求刪除而誤刪 Google 活動！
-            // 應將 Google ID 藉由原子 upsert 寫回資料庫保護，並標記連線異常供日後對帳
+            // 致命缺陷防護：資料庫查詢失敗時，嚴禁覆蓋既有刪除意圖（如 pending_delete）！
+            // 使用帶重試的 updateCalendarEventWithRetry 僅更新 gcal_event_id 與 sync_error，保留資料庫既有狀態
             if (queryLatestErr) {
               console.error('[Calendar Sync] Query latest row error after GAS create. Preserving Google ID without deleting:', queryLatestErr.message);
-              await supabase
-                .from('calendar_events')
-                .upsert([{
+
+              const updateRes = await updateCalendarEventWithRetry(eventRowId, {
+                gcal_event_id: gasEventId,
+                sync_error: 'Google 已建立，但確認狀態時資料庫查詢異常：' + queryLatestErr.message
+              });
+
+              if (!updateRes.success) {
+                // 若多次重試仍失敗，登記至待恢復佇列，確保持久化保證
+                pendingSyncRecoveries.set(eventRowId, {
                   id: eventRowId,
                   gcal_event_id: gasEventId,
                   title: title.trim(),
                   calendar_type: calendarType || 'all',
                   start_time: startTime,
                   end_time: endTime || startTime,
+                  action: 'sync_gcal_id',
                   sync_status: 'pending_push',
-                  sync_error: 'Google 已建立，但確認狀態時資料庫查詢異常：' + queryLatestErr.message
-                }], { onConflict: 'id' });
-              return;
+                  sync_error: '更新 Google ID 失敗，待恢復佇列保留：' + updateRes.error?.message,
+                  failedAt: Date.now()
+                });
+                return;
+              }
+
+              // 檢查更新後列之狀態（不覆蓋刪除意圖！）
+              const updatedRow = (Array.isArray(updateRes.data) && updateRes.data.length > 0)
+                ? updateRes.data[0]
+                : updateRes.data;
+
+              if (updatedRow && updatedRow.sync_status === 'pending_delete') {
+                // 資料庫既有狀態確定為 pending_delete！代表使用者已請求刪除，接續補償性刪除
+                console.log(`[Calendar Sync] Event ${eventRowId} had pending_delete during query error recovery. Initiating compensating delete.`);
+                latestRow = updatedRow;
+              } else if (!updatedRow) {
+                // 原紀錄已不存在（已被刪除），接續補償性刪除
+                latestRow = null;
+              } else {
+                // 原紀錄為非刪除狀態（如 pending_push），Google ID 已安全保存且未誤刪
+                return;
+              }
             }
 
-            // 僅當查詢成功且確定「紀錄不存在（已被硬刪除）」或「已標記為 pending_delete」時，才執行補償性 Google 刪除
+            // 僅當確定「紀錄不存在（已被硬刪除）」或「已標記為 pending_delete」時，才執行補償性 Google 刪除
             if (!latestRow || latestRow.sync_status === 'pending_delete') {
               console.log(`[Calendar Sync] Event ${eventRowId} confirmed deleted or pending_delete. Initiating compensating delete for ${gasEventId}`);
               
               // 先在本地妥善保存 gcal_event_id，防止追蹤資訊丟失
               if (latestRow) {
-                const { error: savePendingErr } = await supabase
-                  .from('calendar_events')
-                  .update({ gcal_event_id: gasEventId, sync_status: 'pending_delete' })
-                  .eq('id', eventRowId);
-                if (savePendingErr) {
-                  console.error('[Calendar Sync] Error saving gcal_event_id prior to compensating delete:', savePendingErr.message);
-                }
+                await updateCalendarEventWithRetry(eventRowId, {
+                  gcal_event_id: gasEventId,
+                  sync_status: 'pending_delete'
+                });
               }
 
               const compGasResult = await sendGasWriteWithRetry({
@@ -787,22 +959,21 @@ export default async function handler(req, res) {
                 const { error: hardDelErr } = await supabase.from('calendar_events').delete().eq('id', eventRowId);
                 if (hardDelErr) {
                   console.error('[Calendar Sync] Failed to hard delete event after compensating GAS delete:', hardDelErr.message);
-                  await supabase
-                    .from('calendar_events')
-                    .upsert([{
-                      id: eventRowId,
-                      gcal_event_id: gasEventId,
-                      title: title.trim(),
-                      calendar_type: calendarType || latestRow?.calendar_type || 'all',
-                      start_time: startTime,
-                      end_time: endTime || startTime,
-                      sync_status: 'failed_delete',
-                      sync_error: 'Google 已刪除，但本地清理失敗：' + hardDelErr.message
-                    }], { onConflict: 'id' });
+                  const failTracking = {
+                    id: eventRowId,
+                    gcal_event_id: gasEventId,
+                    title: title.trim(),
+                    calendar_type: calendarType || latestRow?.calendar_type || 'all',
+                    start_time: startTime,
+                    end_time: endTime || startTime,
+                    sync_status: 'failed_delete',
+                    sync_error: 'Google 已刪除，但本地清理失敗：' + hardDelErr.message
+                  };
+                  await upsertCalendarTrackingWithRetry(failTracking);
                 }
               } else {
                 // 補償刪除失敗（如 permission denied 或 quota exceeded）：嚴禁硬刪除本地！
-                // 使用原子 upsert（以主鍵 id 為衝突目標），無論原紀錄存在（覆蓋更新）或已不存在（自動插入），100% 杜絕 23505 主鍵衝突！
+                // 使用統一的 upsertCalendarTrackingWithRetry，杜絕 23505 衝突並提供 3 次重試與恢復佇列保證
                 console.error('[Calendar Sync] Compensating GAS delete failed, persisting failed_delete tracking record:', compGasResult?.error);
                 
                 const trackingRecord = {
@@ -813,17 +984,11 @@ export default async function handler(req, res) {
                   start_time: startTime || new Date().toISOString(),
                   end_time: endTime || startTime || new Date().toISOString(),
                   sync_status: 'failed_delete',
-                  sync_error: compGasResult?.error || '補償性 Google 日曆刪除失敗'
+                  sync_error: compGasResult?.error || '補償性 Google 日曆刪除失敗',
+                  action: 'compensating_delete'
                 };
 
-                for (let saveAttempt = 1; saveAttempt <= 3; saveAttempt++) {
-                  const { error: saveErr } = await supabase
-                    .from('calendar_events')
-                    .upsert([trackingRecord], { onConflict: 'id' });
-                  if (!saveErr) break;
-                  console.error(`[Calendar Sync] Upsert failed_delete tracking record attempt ${saveAttempt} failed:`, saveErr.message);
-                  await new Promise(r => setTimeout(r, saveAttempt * 100));
-                }
+                await upsertCalendarTrackingWithRetry(trackingRecord);
               }
               return;
             }

@@ -1147,10 +1147,10 @@ test('api/calendar background create inserts orphan tracking record when local r
   assert.match(orphanPayload.sync_error, /quota exceeded/);
 });
 
-test('api/calendar background create preserves Google ID via upsert and does NOT delete Google event when DB query errors', async t => {
+test('api/calendar background create preserves Google ID via update and does NOT delete Google event when DB query errors', async t => {
   const originalFetch = globalThis.fetch;
   let googleDeleteCalledCount = 0;
-  let upsertPreserved = false;
+  let updatePreserved = false;
   let preservedPayload = null;
 
   globalThis.fetch = async (url, init = {}) => {
@@ -1174,17 +1174,18 @@ test('api/calendar background create preserves Google ID via upsert and does NOT
     }
     if (table === 'calendar_events') {
       if (init.method === 'POST') {
-        const payload = JSON.parse(init.body || '{}');
-        if (payload[0]?.gcal_event_id === 'gas_preserve_123') {
-          upsertPreserved = true;
-          preservedPayload = payload[0];
-          return json(payload[0]);
-        }
         return json({ id: 'ev_query_err_1', sync_status: 'pending_push', calendar_type: 'all' });
       }
       if (init.method === 'PATCH') {
-        // 模擬條件更新匹配 0 列
-        return json([]);
+        // 第一次是條件更新：模擬已非 pending_push（匹配 0 列）
+        if (address.searchParams.get('sync_status') === 'eq.pending_push') {
+          return json([]);
+        }
+        // 第二次是保護性 update：僅更新 gcal_event_id，保留既有狀態
+        const payload = JSON.parse(init.body || '{}');
+        updatePreserved = true;
+        preservedPayload = payload;
+        return json([{ id: 'ev_query_err_1', sync_status: 'pending_push', calendar_type: 'all', ...payload }]);
       }
       // GET: 模擬查詢資料庫發生連線逾時異常
       return json({ message: 'connection timeout' }, 500);
@@ -1216,15 +1217,188 @@ test('api/calendar background create preserves Google ID via upsert and does NOT
   );
 
   assert.equal(statusCode, 200);
-  // 等待背景 Promise 完成重試（100ms+200ms+300ms）與 upsert 保存
+  // 等待背景 Promise 完成重試與 update 保存
   await new Promise(r => setTimeout(r, 1000));
 
-  assert.equal(googleDeleteCalledCount, 0, 'Google delete MUST NOT be called when database query encounters an error');
-  assert.equal(upsertPreserved, true, 'Google ID must be safely preserved in database via upsert');
+  assert.equal(googleDeleteCalledCount, 0, 'Google delete MUST NOT be called when database query encounters an error on normal event');
+  assert.equal(updatePreserved, true, 'Google ID must be safely preserved in database via update');
   assert.equal(preservedPayload.gcal_event_id, 'gas_preserve_123');
-  assert.equal(preservedPayload.sync_status, 'pending_push');
+  assert.equal(preservedPayload.sync_status, undefined, 'Update MUST NOT include sync_status in payload so it preserves DB status');
   assert.match(preservedPayload.sync_error, /連線異常|connection timeout/);
 });
+
+test('api/calendar background create preserves pending_delete without overwriting and triggers compensating delete when DB query errors', async t => {
+  const originalFetch = globalThis.fetch;
+  let googleDeleteCalledCount = 0;
+  let hardDeleteCalled = false;
+  let protectionUpdatePayload = null;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const urlStr = String(url);
+    if (urlStr.includes('script.google.com')) {
+      const payload = JSON.parse(init.body || '{}');
+      if (payload.action === 'create') {
+        return json({ eventId: 'gas_del_test_123' });
+      }
+      if (payload.action === 'delete') {
+        googleDeleteCalledCount++;
+        return json({ status: 'success' });
+      }
+      return json({ success: true });
+    }
+
+    const address = new URL(urlStr);
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'admin_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'calendar_events') {
+      if (init.method === 'POST') {
+        return json({ id: 'ev_preserve_del_1', sync_status: 'pending_push', calendar_type: 'all' });
+      }
+      if (init.method === 'PATCH') {
+        // 第一次條件更新：
+        if (address.searchParams.get('sync_status') === 'eq.pending_push') {
+          return json([]);
+        }
+        const bodyPayload = JSON.parse(init.body || '{}');
+        if (!protectionUpdatePayload) {
+          protectionUpdatePayload = bodyPayload;
+        }
+        // 模擬 update 僅更新 gcal_event_id，既有 pending_delete 狀態保留並返回
+        return json([{ id: 'ev_preserve_del_1', sync_status: 'pending_delete', calendar_type: 'all', ...bodyPayload }]);
+      }
+      if (init.method === 'DELETE') {
+        hardDeleteCalled = true;
+        return json({ id: 'ev_preserve_del_1' });
+      }
+      // GET: 模擬三次查詢皆發生連線逾時異常
+      return json({ message: 'connection timeout' }, 500);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        title: '刪除意圖保護測試',
+        startTime: '2026-10-01T09:00:00+08:00',
+        endTime: '2026-10-01T10:00:00+08:00',
+        calendarType: 'all',
+        client_event_id: 'ev_preserve_del_1'
+      }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json() { return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  // 等待背景 Promise 完成重試、偵測 pending_delete 並發動補償性刪除
+  await new Promise(r => setTimeout(r, 1000));
+
+  assert.equal(protectionUpdatePayload?.sync_status, undefined, 'Must NOT overwrite sync_status during query error protection update');
+  assert.equal(googleDeleteCalledCount, 1, 'Google delete MUST be triggered because event was pending_delete');
+  assert.equal(hardDeleteCalled, true, 'Local event must be hard deleted after successful Google delete');
+});
+
+test('api/calendar tracking persistence failure places job in pendingSyncRecoveries and processPendingSyncRecoveries recovers it', async t => {
+  const originalFetch = globalThis.fetch;
+  let dbRecovered = false;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const urlStr = String(url);
+    if (urlStr.includes('script.google.com')) {
+      const payload = JSON.parse(init.body || '{}');
+      if (payload.action === 'create') {
+        return json({ eventId: 'gas_recover_999' });
+      }
+      if (payload.action === 'delete') {
+        // 補償刪除失敗（觸發持久化追蹤）
+        return json({ status: 'error', message: 'rate limit' });
+      }
+      return json({ success: true });
+    }
+
+    const address = new URL(urlStr);
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'admin_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'calendar_events') {
+      if (init.method === 'POST') {
+        const payload = JSON.parse(init.body || '{}');
+        // 若為 failed_delete 的持久化追蹤
+        if (payload[0]?.sync_status === 'failed_delete') {
+          if (!dbRecovered) {
+            // 前期模擬資料庫暫時寫入失敗（觸發重試耗盡並加入 pendingSyncRecoveries）
+            return json({ message: 'DB connection failure during tracking save' }, 500);
+          }
+          // 恢復後寫入成功
+          return json(payload[0]);
+        }
+        return json({ id: 'ev_recover_test_1', sync_status: 'pending_push', calendar_type: 'all' });
+      }
+      if (init.method === 'PATCH') {
+        return json([]);
+      }
+      // GET: 模擬已不存在
+      return json(null);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const calendarModule = await import(`../api/calendar.js?test=${++moduleId}`);
+  const handler = calendarModule.default;
+  const { pendingSyncRecoveries, processPendingSyncRecoveries } = calendarModule;
+
+  let statusCode;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        title: '恢復佇列測試',
+        startTime: '2026-10-01T09:00:00+08:00',
+        endTime: '2026-10-01T10:00:00+08:00',
+        calendarType: 'all',
+        client_event_id: 'ev_recover_test_1'
+      }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json() { return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  // 等待背景 Promise 完成重試並將工作存入 pendingSyncRecoveries
+  await new Promise(r => setTimeout(r, 800));
+
+  assert.equal(pendingSyncRecoveries.has('ev_recover_test_1'), true, 'Must register failed tracking job in pendingSyncRecoveries queue');
+  const job = pendingSyncRecoveries.get('ev_recover_test_1');
+  assert.equal(job.gcal_event_id, 'gas_recover_999');
+
+  // 模擬資料庫連線恢復，執行佇列重試恢復
+  dbRecovered = true;
+  const recoveryResult = await processPendingSyncRecoveries();
+
+  assert.equal(recoveryResult.processed >= 1, true, 'Must process pending recovery job');
+  assert.equal(recoveryResult.successful >= 1, true, 'Recovery must succeed after DB restored');
+  assert.equal(pendingSyncRecoveries.has('ev_recover_test_1'), false, 'Recovered job must be removed from queue');
+});
+
 
 
 
