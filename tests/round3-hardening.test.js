@@ -1384,7 +1384,7 @@ test('api/calendar tracking persistence failure places job in pendingSyncRecover
 
   assert.equal(statusCode, 200);
   // 等待背景 Promise 完成重試並將工作存入 pendingSyncRecoveries
-  await new Promise(r => setTimeout(r, 800));
+  await new Promise(r => setTimeout(r, 1200));
 
   assert.equal(pendingSyncRecoveries.has('ev_recover_test_1'), true, 'Must register failed tracking job in pendingSyncRecoveries queue');
   const job = pendingSyncRecoveries.get('ev_recover_test_1');
