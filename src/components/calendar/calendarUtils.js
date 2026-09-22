@@ -83,10 +83,13 @@ export function clearAllCalendarCache() {
       localStorage.removeItem(CACHE_PREFIX + 'all');
       localStorage.removeItem(CACHE_PREFIX + 'wutai');
       localStorage.removeItem(CACHE_PREFIX + 'ligu');
-      // 同步清理歷史舊版快取 (v3, 舊無前綴版)
+      // 同步清理歷史各版本快取 (v3, v2, 舊無前綴版)
       localStorage.removeItem('wutps_cal_v3_all');
       localStorage.removeItem('wutps_cal_v3_wutai');
       localStorage.removeItem('wutps_cal_v3_ligu');
+      localStorage.removeItem('wutps_cal_v2_all');
+      localStorage.removeItem('wutps_cal_v2_wutai');
+      localStorage.removeItem('wutps_cal_v2_ligu');
       localStorage.removeItem('wutps_cal_all');
       localStorage.removeItem('wutps_cal_wutai');
       localStorage.removeItem('wutps_cal_ligu');

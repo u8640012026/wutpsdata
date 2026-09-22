@@ -698,7 +698,7 @@ test('api/calendar DELETE sets pending_delete instead of hard-delete when event 
       if (init.method === 'PATCH') {
         patchCalled = true;
         updatedPayload = JSON.parse(init.body);
-        return json({ id: 'pending_ev_1', sync_status: 'pending_delete' });
+        return json([{ id: 'pending_ev_1', sync_status: 'pending_delete' }]);
       }
       if (init.method === 'DELETE') {
         deleteCalled = true;
@@ -988,6 +988,157 @@ test('api/calendar background create conditional update prevents overwriting con
   assert.equal(overwroteToSynced, false, 'Must NEVER overwrite concurrent pending_delete with synced');
   assert.equal(compensatingDeleteTriggered, true, 'Must trigger compensating delete for orphaned event');
   assert.equal(hardDeleteCalled, true, 'Must clean up local row after compensating delete succeeds');
+});
+
+test('api/calendar DELETE handles reverse interleaving race by executing direct Google delete when gcal_event_id already written', async t => {
+  const originalFetch = globalThis.fetch;
+  let googleDeleteCalledCount = 0;
+  let hardDeleteCalled = false;
+  let patchStep = 0;
+  let getStep = 0;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const urlStr = String(url);
+    if (urlStr.includes('script.google.com')) {
+      const payload = JSON.parse(init.body || '{}');
+      if (payload.action === 'delete') {
+        googleDeleteCalledCount++;
+        return json({ status: 'success' });
+      }
+      return json({ success: true });
+    }
+
+    const address = new URL(urlStr);
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'admin_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'calendar_events') {
+      if (init.method === 'PATCH') {
+        patchStep++;
+        // 第一次 PATCH 是條件更新 sync_status=eq.pending_push，模擬背景工作已先行寫入，因此條件更新匹配 0 列
+        if (address.searchParams.get('sync_status') === 'eq.pending_push') {
+          return json([]);
+        }
+        // 第二次 PATCH 是重查到 gcal_event_id 後標記 pending_delete
+        return json({ id: 'ev_interleaved_1', sync_status: 'pending_delete', gcal_event_id: 'gcal_live_123' });
+      }
+      if (init.method === 'DELETE') {
+        hardDeleteCalled = true;
+        return json({ id: 'ev_interleaved_1' });
+      }
+      // GET requests:
+      getStep++;
+      if (getStep === 1) {
+        // DELETE 進入點初次查詢：尚未取得 gcal_event_id，處於 pending_push
+        return json({ id: 'ev_interleaved_1', gcal_event_id: null, calendar_type: 'all', sync_status: 'pending_push' });
+      }
+      // 條件更新失敗後重新檢索：背景工作已寫入 Google ID 且為 synced
+      return json({ id: 'ev_interleaved_1', gcal_event_id: 'gcal_live_123', calendar_type: 'all', sync_status: 'synced' });
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'DELETE',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: { eventId: 'ev_interleaved_1', calendarType: 'all' }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  assert.equal(googleDeleteCalledCount, 1, 'Google delete MUST be called once despite reverse interleaving');
+  assert.equal(hardDeleteCalled, true, 'Local record must be cleaned up after successful Google delete');
+  assert.equal(body.status, 'success');
+});
+
+test('api/calendar background create inserts orphan tracking record when local row does not exist and compensating delete fails', async t => {
+  const originalFetch = globalThis.fetch;
+  let orphanTrackingInserted = false;
+  let orphanPayload = null;
+  let inserted = false;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const urlStr = String(url);
+    if (urlStr.includes('script.google.com')) {
+      const payload = JSON.parse(init.body || '{}');
+      if (payload.action === 'create') {
+        return json({ eventId: 'gas_orphan_999' });
+      }
+      if (payload.action === 'delete') {
+        // 模擬補償刪除失敗（如 quota exceeded）
+        return json({ status: 'error', message: 'quota exceeded' });
+      }
+      return json({ success: true });
+    }
+
+    const address = new URL(urlStr);
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'admin_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'calendar_events') {
+      if (init.method === 'POST') {
+        const payload = JSON.parse(init.body || '{}');
+        if (payload[0]?.sync_status === 'failed_delete') {
+          // 捕捉持久化孤兒追蹤紀錄
+          orphanTrackingInserted = true;
+          orphanPayload = payload[0];
+          return json(payload[0]);
+        }
+        inserted = true;
+        return json({ id: 'ev_orphan_test_1', sync_status: 'pending_push', calendar_type: 'all' });
+      }
+      if (init.method === 'PATCH') {
+        // 條件更新匹配 0 列
+        return json([]);
+      }
+      // GET requests: 插入前返回 null，重新查詢時亦返回 null（模擬本地紀錄已被硬刪除）
+      return json(null);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        title: '孤兒追蹤測試',
+        startTime: '2026-10-01T09:00:00+08:00',
+        endTime: '2026-10-01T10:00:00+08:00',
+        calendarType: 'all',
+        client_event_id: 'ev_orphan_test_1'
+      }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json() { return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  await new Promise(r => setTimeout(r, 200));
+
+  assert.equal(orphanTrackingInserted, true, 'Must persist orphan tracking record when row does not exist and compensating delete fails');
+  assert.equal(orphanPayload.gcal_event_id, 'gas_orphan_999');
+  assert.equal(orphanPayload.sync_status, 'failed_delete');
+  assert.match(orphanPayload.sync_error, /quota exceeded/);
 });
 
 
