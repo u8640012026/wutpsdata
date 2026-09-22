@@ -41,10 +41,11 @@ export async function updateCalendarEventWithRetry(eventId, updateFields, maxAtt
 // 統一持久化追蹤紀錄輔助函式（具備主鍵衝突原子 upsert、3次退避重試與失敗保留佇列）
 export async function upsertCalendarTrackingWithRetry(trackingRecord, maxAttempts = 3) {
   let lastErr = null;
+  const { action, ...dbPayload } = trackingRecord;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const res = await supabase
       .from('calendar_events')
-      .upsert([trackingRecord], { onConflict: 'id' })
+      .upsert([dbPayload], { onConflict: 'id' })
       .select('id, sync_status');
 
     if (!res.error) {
