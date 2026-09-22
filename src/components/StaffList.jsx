@@ -10,27 +10,35 @@ export const WUTPS_CLASSES = [
 
 export const DEFAULT_DEPARTMENTS = [
   '校長室',
-  '教務處',
+  '教導處',
   '學務處',
   '總務處',
-  '人事室',
-  '勵古百合分校',
+  '研發處',
   '幼兒園',
+  '勵古百合分校',
   '專案/兼任'
 ];
 
 export const DEFAULT_ROLE_TAGS = [
-  { tag: '0', label: '0 系統管理員', color: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' },
-  { tag: '1', label: '1 校長', color: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' },
-  { tag: '2', label: '2 處室主任', color: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' },
-  { tag: '3', label: '3 業務組長', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' },
-  { tag: '4', label: '4 班級導師', color: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300' },
-  { tag: '6', label: '6 族語教師', color: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300' },
-  { tag: '7', label: '7 英語教師', color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300' },
-  { tag: '9', label: '9 特教教師', color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' },
-  { tag: '10', label: '10 輔導教師', color: 'bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-300' },
-  { tag: '20', label: '20 專任教師', color: 'bg-lime-100 text-lime-800 dark:bg-lime-950 dark:text-lime-300' },
-  { tag: '40', label: '40 技工/修繕管理', color: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' }
+  // 0 管理者
+  { tag: '0', label: '0 管理者', color: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300', group: 'admin', groupTitle: '系統最高管理' },
+  // 1~10 職務角色與專任教學
+  { tag: '1', label: '1 校長', color: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300', group: 'role', groupTitle: '職務與教學角色' },
+  { tag: '2', label: '2 主任', color: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300', group: 'role', groupTitle: '職務與教學角色' },
+  { tag: '3', label: '3 組長', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300', group: 'role', groupTitle: '職務與教學角色' },
+  { tag: '4', label: '4 導師', color: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300', group: 'role', groupTitle: '職務與教學角色' },
+  { tag: '5', label: '5 科任', color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300', group: 'role', groupTitle: '職務與教學角色' },
+  { tag: '6', label: '6 族語', color: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300', group: 'role', groupTitle: '職務與教學角色' },
+  { tag: '7', label: '7 英語', color: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300', group: 'role', groupTitle: '職務與教學角色' },
+  { tag: '8', label: '8 職員', color: 'bg-stone-200 text-stone-800 dark:bg-slate-700 dark:text-stone-300', group: 'role', groupTitle: '職務與教學角色' },
+  { tag: '9', label: '9 特教', color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300', group: 'role', groupTitle: '職務與教學角色' },
+  { tag: '10', label: '10 輔導', color: 'bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-300', group: 'role', groupTitle: '職務與教學角色' },
+  // 20~60 處室所屬單位
+  { tag: '20', label: '20 教導處', color: 'bg-lime-100 text-lime-800 dark:bg-lime-950 dark:text-lime-300', group: 'dept', groupTitle: '所屬處室單位' },
+  { tag: '30', label: '30 學務處', color: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300', group: 'dept', groupTitle: '所屬處室單位' },
+  { tag: '40', label: '40 總務處', color: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300', group: 'dept', groupTitle: '所屬處室單位' },
+  { tag: '50', label: '50 研發處', color: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300', group: 'dept', groupTitle: '所屬處室單位' },
+  { tag: '60', label: '60 幼兒園', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300', group: 'dept', groupTitle: '所屬處室單位' }
 ];
 
 export default function StaffList() {
@@ -106,7 +114,11 @@ export default function StaffList() {
       }
     });
 
-    return Array.from(tagMap.values());
+    return Array.from(tagMap.values()).sort((a, b) => {
+      const numA = parseInt(a.tag, 10);
+      const numB = parseInt(b.tag, 10);
+      return isNaN(numA) || isNaN(numB) ? a.tag.localeCompare(b.tag) : numA - numB;
+    });
   }, [staff, customRoleTags]);
 
   const handleAddCustomRoleTag = (tagStr, labelStr) => {
@@ -832,29 +844,68 @@ export default function StaffList() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 rounded-xl border bg-stone-50 dark:bg-slate-800/50 border-stone-200 dark:border-slate-700 max-h-52 overflow-y-auto">
-                  {allRoleTags.map(({ tag, label }) => {
-                    const isChecked = formData.role_tags
-                      ?.split(/[,，、\s]+/)
-                      .map(t => t.trim())
-                      .includes(tag);
+                <div className="p-3 rounded-xl border bg-stone-50 dark:bg-slate-800/50 border-stone-200 dark:border-slate-700 max-h-64 overflow-y-auto space-y-3">
+                  {/* 1. 職務與教學角色 (0~10) */}
+                  <div>
+                    <span className="block text-[11px] font-bold text-stone-500 dark:text-stone-400 mb-1.5">
+                      1. 職務角色與專任教學 (可複選)
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {allRoleTags.filter(r => !['20', '30', '40', '50', '60'].includes(r.tag)).map(({ tag, label }) => {
+                        const isChecked = formData.role_tags
+                          ?.split(/[,，、\s]+/)
+                          .map(t => t.trim())
+                          .includes(tag);
 
-                    return (
-                      <button
-                        type="button"
-                        key={tag}
-                        onClick={() => handleToggleRoleTag(tag)}
-                        className={`p-2 rounded-lg text-xs font-bold flex items-center justify-between border transition text-left ${
-                          isChecked
-                            ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
-                            : 'bg-white dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-slate-700'
-                        }`}
-                      >
-                        <span className="truncate mr-1">{label}</span>
-                        {isChecked && <Check size={13} className="text-white flex-shrink-0" />}
-                      </button>
-                    );
-                  })}
+                        return (
+                          <button
+                            type="button"
+                            key={tag}
+                            onClick={() => handleToggleRoleTag(tag)}
+                            className={`p-2 rounded-lg text-xs font-bold flex items-center justify-between border transition text-left ${
+                              isChecked
+                                ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            <span className="truncate mr-1">{label}</span>
+                            {isChecked && <Check size={13} className="text-white flex-shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 2. 所屬處室單位 (20~60) */}
+                  <div className="pt-2 border-t border-stone-200/60 dark:border-slate-700/60">
+                    <span className="block text-[11px] font-bold text-stone-500 dark:text-stone-400 mb-1.5">
+                      2. 所屬處室單位 (可複選)
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {allRoleTags.filter(r => ['20', '30', '40', '50', '60'].includes(r.tag)).map(({ tag, label }) => {
+                        const isChecked = formData.role_tags
+                          ?.split(/[,，、\s]+/)
+                          .map(t => t.trim())
+                          .includes(tag);
+
+                        return (
+                          <button
+                            type="button"
+                            key={tag}
+                            onClick={() => handleToggleRoleTag(tag)}
+                            className={`p-2 rounded-lg text-xs font-bold flex items-center justify-between border transition text-left ${
+                              isChecked
+                                ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            <span className="truncate mr-1">{label}</span>
+                            {isChecked && <Check size={13} className="text-white flex-shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
 
                 {/* 快速新增自訂標籤 */}
@@ -891,15 +942,15 @@ export default function StaffList() {
                     type="text"
                     value={formData.role_tags}
                     onChange={(e) => setFormData({ ...formData, role_tags: e.target.value })}
-                    placeholder="以逗號分隔，如 2,3,4"
+                    placeholder="以逗號分隔，如 2,20 或 4,20"
                     className={`flex-1 px-2.5 py-1 text-xs font-mono rounded-lg border outline-none focus:ring-2 focus:ring-purple-500 ${
                       isDark ? 'bg-slate-800 border-slate-700 text-purple-300' : 'bg-white border-stone-300 text-purple-700'
                     }`}
                   />
                 </div>
 
-                <p className="text-[11px] text-stone-400 mt-1.5">
-                  💡 說明：0 為最高管理員、1 為校長、2 為主任、3 為組長、4 為導師、20 為專任教師、40 為修繕管理員；支援複選（如：2,3 代表主任兼組長）。
+                <p className="text-[11px] text-stone-400 mt-1.5 leading-relaxed">
+                  💡 <strong>標籤複選說明</strong>：同仁可同時擁有職務與處室標籤（如：<code>2,20</code> 代表教導主任、<code>3,40</code> 代表總務處組長、<code>4,20</code> 代表國小部導師、<code>4,60</code> 代表幼兒園導師、<code>0,2,20</code> 代表兼任管理員之主任）。
                 </p>
               </div>
 
