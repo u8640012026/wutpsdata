@@ -37,8 +37,15 @@ export const calendarMemoryCache = {
 };
 
 export function getCachedEvents(type) {
+  const filterActiveOnly = (items) => {
+    if (!Array.isArray(items)) return [];
+    return items.filter(ev => !['pending_delete', 'failed_delete'].includes(ev.syncStatus || ev.sync_status));
+  };
+
   if (calendarMemoryCache[type] && Array.isArray(calendarMemoryCache[type]) && calendarMemoryCache[type].length > 0) {
-    return calendarMemoryCache[type];
+    const valid = filterActiveOnly(calendarMemoryCache[type]);
+    calendarMemoryCache[type] = valid;
+    return valid;
   }
   if (typeof window !== 'undefined') {
     try {
@@ -46,8 +53,9 @@ export function getCachedEvents(type) {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          calendarMemoryCache[type] = parsed;
-          return parsed;
+          const valid = filterActiveOnly(parsed);
+          calendarMemoryCache[type] = valid;
+          return valid;
         }
       }
     } catch {}

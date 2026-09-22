@@ -6,6 +6,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || 'MISSING_SERVICE_ROLE_KEY'
 );
 
+const inFlightBrainUploads = new Set();
+
 export default async function handler(req, res) {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(500).json({ error: '伺服器未設定機密金鑰 (SERVICE_ROLE_KEY)' });
@@ -72,68 +74,94 @@ export default async function handler(req, res) {
       const targetFileName = (file_name || title).trim();
       const cleanTitle = title.trim();
 
-      // 檢查同處室是否已存在相同檔名之文件，若存在則覆蓋更新，避免同檔案重複上傳浪費 AI Token
-      const { data: existingDoc, error: findErr } = await supabase
-        .from('brain_documents')
-        .select('id')
-        .eq('dept_id', dept_id)
-        .eq('file_name', targetFileName)
-        .maybeSingle();
-
-      if (findErr) {
-        console.warn('brain_documents find duplicate check note:', findErr.message);
+      const uploadLockKey = `${dept_id}:${targetFileName}`;
+      if (inFlightBrainUploads.has(uploadLockKey)) {
+        return res.status(409).json({ error: '同處室同檔名文件正在處理中，請勿重複提交' });
       }
+      inFlightBrainUploads.add(uploadLockKey);
 
-      if (existingDoc?.id) {
-        // 覆蓋更新既有紀錄
+      try {
+        // 檢查同處室是否已存在相同檔名之文件，若存在則覆蓋更新，避免同檔案重複上傳浪費 AI Token
+        const { data: existingDoc, error: findErr } = await supabase
+          .from('brain_documents')
+          .select('id')
+          .eq('dept_id', dept_id)
+          .eq('file_name', targetFileName)
+          .maybeSingle();
+
+        if (findErr) {
+          console.error('brain_documents find duplicate check error:', findErr.message);
+          return res.status(500).json({ error: '知識庫重複查核失敗：' + findErr.message });
+        }
+
+        if (existingDoc?.id) {
+          // 覆蓋更新既有紀錄
+          const { data, error } = await supabase
+            .from('brain_documents')
+            .update({
+              title: cleanTitle,
+              file_name: targetFileName,
+              file_size: file_size || '未知',
+              uploaded_by: uploaded_by || '校務同仁',
+              uploaded_by_uid: line_uid,
+              extracted_text: extracted_text || '',
+              summary: summary || '',
+              created_at: new Date().toISOString()
+            })
+            .eq('id', existingDoc.id)
+            .select()
+            .single();
+
+          if (error) {
+            console.error('brain_documents update error:', error.message);
+            return res.status(500).json({ error: '知識庫文件更新失敗：' + error.message });
+          }
+
+          return res.status(200).json({ ...data, isUpdated: true });
+        }
+
+        const newRecord = {
+          dept_id,
+          title: cleanTitle,
+          file_name: targetFileName,
+          file_size: file_size || '未知',
+          uploaded_by: uploaded_by || '校務同仁',
+          uploaded_by_uid: line_uid,
+          extracted_text: extracted_text || '',
+          summary: summary || '',
+          created_at: new Date().toISOString()
+        };
+
         const { data, error } = await supabase
           .from('brain_documents')
-          .update({
-            title: cleanTitle,
-            file_name: targetFileName,
-            file_size: file_size || '未知',
-            uploaded_by: uploaded_by || '校務同仁',
-            uploaded_by_uid: line_uid,
-            extracted_text: extracted_text || '',
-            summary: summary || '',
-            created_at: new Date().toISOString()
-          })
-          .eq('id', existingDoc.id)
+          .upsert([newRecord], { onConflict: 'dept_id,file_name' })
           .select()
           .single();
 
         if (error) {
-          console.error('brain_documents update error:', error.message);
-          return res.status(500).json({ error: '知識庫文件更新失敗：' + error.message });
+          // 若資料庫尚未建立 (dept_id, file_name) 唯一索引，降級至一般 insert
+          if (error.message?.includes('ON CONFLICT') || error.code === '42P10') {
+            const { data: fallbackData, error: fallbackErr } = await supabase
+              .from('brain_documents')
+              .insert([newRecord])
+              .select()
+              .single();
+
+            if (fallbackErr) {
+              console.error('brain_documents fallback insert error:', fallbackErr.message);
+              return res.status(500).json({ error: '知識庫文件儲存失敗：' + fallbackErr.message });
+            }
+            return res.status(201).json(fallbackData);
+          }
+
+          console.error('brain_documents upsert error:', error.message);
+          return res.status(500).json({ error: '知識庫文件儲存失敗：' + error.message });
         }
 
-        return res.status(200).json({ ...data, isUpdated: true });
+        return res.status(201).json(data);
+      } finally {
+        inFlightBrainUploads.delete(uploadLockKey);
       }
-
-      const newRecord = {
-        dept_id,
-        title: cleanTitle,
-        file_name: targetFileName,
-        file_size: file_size || '未知',
-        uploaded_by: uploaded_by || '校務同仁',
-        uploaded_by_uid: line_uid,
-        extracted_text: extracted_text || '',
-        summary: summary || '',
-        created_at: new Date().toISOString()
-      };
-
-      const { data, error } = await supabase
-        .from('brain_documents')
-        .insert([newRecord])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('brain_documents insert error:', error.message);
-        return res.status(500).json({ error: '知識庫文件儲存失敗：' + error.message });
-      }
-
-      return res.status(201).json(data);
     }
 
     if (req.method === 'DELETE') {

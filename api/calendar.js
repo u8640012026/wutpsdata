@@ -342,7 +342,7 @@ export default async function handler(req, res) {
 
       const { data: existing, error: findErr } = await supabase
         .from('calendar_events')
-        .select('id, gcal_event_id, calendar_type')
+        .select('id, gcal_event_id, calendar_type, sync_status')
         .or(`id.eq.${eventId},gcal_event_id.eq.${eventId}`)
         .maybeSingle();
 
@@ -406,7 +406,27 @@ export default async function handler(req, res) {
           });
         }
       } else {
-        // 若無 Google ID，直接清理資料庫
+        // 若無 Google ID：
+        // 關鍵競態防護：如果 sync_status === 'pending_push'，代表後台正向 Google 發送新增請求！
+        // 若直接 hard delete 本地資料，Google 建立成功後將變成無主孤兒活動，日後 sync_from_gas 會再度復活！
+        if (existing.sync_status === 'pending_push') {
+          const { error: markErr } = await supabase
+            .from('calendar_events')
+            .update({ sync_status: 'pending_delete', sync_error: '使用者於 Google 建立期間請求刪除' })
+            .eq('id', existing.id);
+
+          if (markErr) {
+            return res.status(500).json({ status: 'error', message: '標記待刪除狀態失敗：' + markErr.message });
+          }
+
+          return res.status(200).json({
+            status: 'success',
+            message: '活動正在 Google 建立中，已標記待刪除狀態，建立完成後將自動補償性自 Google 移除',
+            sync_status: 'pending_delete'
+          });
+        }
+
+        // 純本地活動（非 pending_push 且無 Google ID）：直接清理資料庫
         const { error: delErr } = await supabase.from('calendar_events').delete().eq('id', existing.id);
         if (delErr) {
           return res.status(500).json({ status: 'error', message: '資料庫刪除活動失敗：' + delErr.message });
@@ -608,6 +628,30 @@ export default async function handler(req, res) {
         }).then(async (gasResult) => {
           if (gasResult.success && gasResult.data?.eventId) {
             const gasEventId = gasResult.data.eventId;
+
+            // 競態檢查：在寫回 gcal_event_id 前，先查詢資料庫該筆活動當前狀態
+            const { data: latestRow } = await supabase
+              .from('calendar_events')
+              .select('id, sync_status, calendar_type')
+              .eq('id', eventRowId)
+              .maybeSingle();
+
+            // 若活動在 Google 建立期間已被使用者要求刪除 (pending_delete) 或已不存在：
+            if (!latestRow || latestRow.sync_status === 'pending_delete') {
+              console.log(`[Calendar Sync] Event ${eventRowId} marked pending_delete or removed during creation. Compensating delete for ${gasEventId}`);
+              try {
+                await sendGasWriteWithRetry({
+                  action: 'delete',
+                  eventId: gasEventId,
+                  calendarType: calendarType || latestRow?.calendar_type || 'all'
+                });
+              } catch (compErr) {
+                console.error('[Calendar Sync] Compensating GAS delete failed:', compErr.message);
+              }
+              await supabase.from('calendar_events').delete().eq('id', eventRowId);
+              return;
+            }
+
             const { error: syncUpdateErr } = await supabase
               .from('calendar_events')
               .update({ gcal_event_id: gasEventId, sync_status: 'synced', sync_error: null })
@@ -625,6 +669,18 @@ export default async function handler(req, res) {
           }
 
           const failReason = gasResult.error || 'Google Apps Script 回傳失敗';
+          // 若建立失敗且已被標記 pending_delete，直接刪除該筆失敗紀錄
+          const { data: latestRowOnFail } = await supabase
+            .from('calendar_events')
+            .select('id, sync_status')
+            .eq('id', eventRowId)
+            .maybeSingle();
+
+          if (!latestRowOnFail || latestRowOnFail.sync_status === 'pending_delete') {
+            await supabase.from('calendar_events').delete().eq('id', eventRowId);
+            return;
+          }
+
           const { error: failUpdateErr } = await supabase
             .from('calendar_events')
             .update({

@@ -107,7 +107,10 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
     setErrorMsg('');
     try {
       // 1. 優先直接向 Supabase PostgREST 查詢 (69ms 秒開)
-      let query = supabase.from('calendar_events').select('*');
+      let query = supabase
+        .from('calendar_events')
+        .select('*')
+        .not('sync_status', 'in', '("pending_delete","failed_delete")');
       if (filterType === 'wutai') {
         query = query.in('calendar_type', ['all', 'wutai']);
       } else if (filterType === 'ligu') {
@@ -121,7 +124,8 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       if (activeFilterRef.current !== filterType) return;
 
       if (!dbError && Array.isArray(dbEvents) && dbEvents.length > 0) {
-        const mapped = dbEvents.map(ev => ({
+        const filtered = dbEvents.filter(ev => !['pending_delete', 'failed_delete'].includes(ev.sync_status));
+        const mapped = filtered.map(ev => ({
           id: ev.id,
           gcal_event_id: ev.gcal_event_id || ev.id,
           calendarType: ev.calendar_type,
@@ -134,7 +138,8 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
           periodInfo: ev.period_info || '',
           targetGrades: ev.target_grades || '全校所有班級',
           department: ev.department || '教務處',
-          creatorName: ev.creator_name || ''
+          creatorName: ev.creator_name || '',
+          syncStatus: ev.sync_status || 'synced'
         }));
         setCachedEvents(filterType, mapped);
         setEvents(mapped);
@@ -149,8 +154,9 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       if (activeFilterRef.current !== filterType) return;
 
       if (json.status === 'success' && Array.isArray(json.data)) {
-        setCachedEvents(filterType, json.data);
-        setEvents(json.data);
+        const filteredData = json.data.filter(ev => !['pending_delete', 'failed_delete'].includes(ev.syncStatus || ev.sync_status));
+        setCachedEvents(filterType, filteredData);
+        setEvents(filteredData);
       } else {
         if (!isSilent) setErrorMsg(json.message || '無法取得日曆資料');
       }
@@ -268,9 +274,14 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
         await loadEvents(false);
       } else {
         alert(json.message || '刪除失敗');
+        // 刪除若失敗或進入 pending_delete / failed_delete 佇列，立即清空快取並重新整理過濾
+        clearAllCalendarCache();
+        await loadEvents(true);
       }
     } catch (_err) {
       alert('刪除請求失敗，請檢查網路狀態');
+      clearAllCalendarCache();
+      await loadEvents(true);
     } finally {
       setIsSubmitting(false);
     }

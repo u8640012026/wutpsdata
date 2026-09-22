@@ -17,10 +17,14 @@ export const useApp = () => useContext(AppContext);
 const PROD_LIFF_ID = '2011376584-Ia2rhpXU';
 const DEV_LIFF_ID = '2011376584-Qs53XYSD';
 
+const isProdHost = typeof window !== 'undefined' && (
+  window.location.hostname === 'wutpsdata.vercel.app' ||
+  window.location.hostname === 'www.wutpsdata.vercel.app'
+);
+
 const isDevEnv = typeof window !== 'undefined' && (
-  window.location.hostname.includes('-dev') ||
-  window.location.hostname.includes('localhost') ||
-  window.location.hostname.includes('127.0.0.1')
+  !isProdHost ||
+  new URLSearchParams(window.location.search).get('dev') === 'true'
 );
 
 const LIFF_ID = isDevEnv ? DEV_LIFF_ID : (import.meta.env.VITE_LIFF_ID || PROD_LIFF_ID);

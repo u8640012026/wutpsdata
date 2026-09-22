@@ -644,5 +644,119 @@ test('api/brain POST inserts new document when dept_id and file_name is unique',
   assert.equal(body.id, 'doc_brand_new');
 });
 
+test('api/brain POST returns 500 when duplicate check query fails', async t => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const address = new URL(String(url));
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'teacher_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'brain_documents') {
+      return json({ message: 'Database connection failed' }, 500);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/brain.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'teacher_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        dept_id: 'academic',
+        title: '查詢失敗測試.pdf',
+        file_name: '查詢失敗測試.pdf'
+      }
+    },
+    {
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; }
+    }
+  );
+
+  assert.equal(statusCode, 500);
+  assert.match(body.error, /知識庫重複查核失敗/);
+});
+
+test('api/calendar DELETE sets pending_delete instead of hard-delete when event is pending_push without gcalId', async t => {
+  const originalFetch = globalThis.fetch;
+  let patchCalled = false;
+  let deleteCalled = false;
+  let updatedPayload = null;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const address = new URL(String(url));
+    const table = address.pathname.split('/').pop();
+
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'admin_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'calendar_events') {
+      if (init.method === 'PATCH') {
+        patchCalled = true;
+        updatedPayload = JSON.parse(init.body);
+        return json({ id: 'pending_ev_1', sync_status: 'pending_delete' });
+      }
+      if (init.method === 'DELETE') {
+        deleteCalled = true;
+        return json({ id: 'pending_ev_1' });
+      }
+      // 模擬尚未取得 gcal_event_id 且正處於 pending_push 狀態
+      return json({
+        id: 'pending_ev_1',
+        gcal_event_id: null,
+        calendar_type: 'all',
+        sync_status: 'pending_push'
+      });
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'DELETE',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: { eventId: 'pending_ev_1', calendarType: 'all' }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  assert.equal(patchCalled, true);
+  assert.equal(deleteCalled, false, 'Should not hard-delete pending_push events');
+  assert.equal(updatedPayload.sync_status, 'pending_delete');
+  assert.equal(body.sync_status, 'pending_delete');
+});
+
+test('calendarUtils getCachedEvents strictly filters out pending_delete and failed_delete events', async t => {
+  const { getCachedEvents, setCachedEvents, clearAllCalendarCache } = await import('../src/components/calendar/calendarUtils.js');
+
+  clearAllCalendarCache();
+  const rawEvents = [
+    { id: '1', title: '正常活動', syncStatus: 'synced' },
+    { id: '2', title: '待刪除活動', syncStatus: 'pending_delete' },
+    { id: '3', title: '刪除失敗活動', syncStatus: 'failed_delete' }
+  ];
+
+  setCachedEvents('all', rawEvents);
+  const cached = getCachedEvents('all');
+
+  assert.equal(cached.length, 1);
+  assert.equal(cached[0].id, '1');
+  assert.equal(cached[0].title, '正常活動');
+  clearAllCalendarCache();
+});
+
 
 
