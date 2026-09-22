@@ -758,5 +758,237 @@ test('calendarUtils getCachedEvents strictly filters out pending_delete and fail
   clearAllCalendarCache();
 });
 
+test('api/brain POST halts and returns 500 when unique index is missing (42P10 / ON CONFLICT)', async t => {
+  const originalFetch = globalThis.fetch;
+  let insertAttempted = false;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const address = new URL(String(url));
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'teacher_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'brain_documents') {
+      if (init.method === 'POST') {
+        const prefer = init.headers?.['Prefer'] || '';
+        if (prefer.includes('resolution=merge-duplicates') || address.searchParams.has('on_conflict')) {
+          // 模擬 PostgreSQL 42P10 錯誤（缺少唯一鍵約束）
+          return json({ code: '42P10', message: 'there is no unique or exclusion constraint matching the ON CONFLICT specification' }, 400);
+        }
+        insertAttempted = true;
+        return json({ id: 'doc_inserted_blindly' });
+      }
+      return json(null);
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/brain.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'teacher_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        dept_id: 'academic',
+        title: '缺少約束測試.pdf',
+        file_name: '缺少約束測試.pdf'
+      }
+    },
+    {
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; }
+    }
+  );
+
+  assert.equal(statusCode, 500);
+  assert.equal(insertAttempted, false, 'Must NOT fall back to blind non-atomic INSERT');
+  assert.match(body.error, /唯一索引約束/);
+});
+
+test('calendarUtils uses wutps_cal_v4_ prefix and cleans up old v3 keys', async t => {
+  const { CACHE_PREFIX, clearAllCalendarCache } = await import('../src/components/calendar/calendarUtils.js');
+  assert.equal(CACHE_PREFIX, 'wutps_cal_v4_');
+  clearAllCalendarCache();
+});
+
+test('api/calendar background create preserves failed_delete when compensating GAS delete fails', async t => {
+  const originalFetch = globalThis.fetch;
+  let hardDeleteCalled = false;
+  let failedDeleteRecorded = false;
+  let recordedError = null;
+  let inserted = false;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const urlStr = String(url);
+    if (urlStr.includes('script.google.com')) {
+      const payload = JSON.parse(init.body || '{}');
+      if (payload.action === 'create') {
+        return json({ eventId: 'gas_comp_test_1' });
+      }
+      if (payload.action === 'delete') {
+        // 模擬 Google 回傳 permission denied 業務失敗
+        return json({ status: 'error', message: 'permission denied' });
+      }
+      return json({ success: true });
+    }
+
+    const address = new URL(urlStr);
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'admin_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'calendar_events') {
+      if (init.method === 'POST') {
+        inserted = true;
+        // 新增成功，初始為 pending_push
+        return json({ id: 'ev_comp_1', sync_status: 'pending_push', calendar_type: 'all' });
+      }
+      if (init.method === 'PATCH') {
+        const payload = JSON.parse(init.body || '{}');
+        // 檢查條件更新：模擬該列已不再處於 pending_push（模擬併發刪除），因此條件更新返回 []
+        if (address.searchParams.get('sync_status') === 'eq.pending_push') {
+          return json([]);
+        }
+        if (payload.sync_status === 'failed_delete') {
+          failedDeleteRecorded = true;
+          recordedError = payload.sync_error;
+          return json({ id: 'ev_comp_1', ...payload });
+        }
+        return json({ id: 'ev_comp_1', ...payload });
+      }
+      if (init.method === 'DELETE') {
+        hardDeleteCalled = true;
+        return json({ id: 'ev_comp_1' });
+      }
+      // GET requests: 插入前返回 null（模擬尚無此活動），插入後重新查詢時返回 pending_delete（模擬使用者已標記刪除）
+      if (!inserted) {
+        return json(null);
+      }
+      return json({ id: 'ev_comp_1', sync_status: 'pending_delete', calendar_type: 'all' });
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        title: '補償刪除失敗測試',
+        startTime: '2026-10-01T09:00:00+08:00',
+        endTime: '2026-10-01T10:00:00+08:00',
+        calendarType: 'all',
+        client_event_id: 'ev_comp_1'
+      }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+
+  // 等待背景 Promise 執行完畢
+  await new Promise(r => setTimeout(r, 200));
+
+  assert.equal(hardDeleteCalled, false, 'Must NOT hard delete when compensating delete fails');
+  assert.equal(failedDeleteRecorded, true, 'Must preserve failed_delete status');
+  assert.match(recordedError, /permission denied/);
+});
+
+test('api/calendar background create conditional update prevents overwriting concurrent pending_delete to synced', async t => {
+  const originalFetch = globalThis.fetch;
+  let overwroteToSynced = false;
+  let compensatingDeleteTriggered = false;
+  let hardDeleteCalled = false;
+  let inserted = false;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const urlStr = String(url);
+    if (urlStr.includes('script.google.com')) {
+      const payload = JSON.parse(init.body || '{}');
+      if (payload.action === 'create') {
+        return json({ eventId: 'gas_race_test_1' });
+      }
+      if (payload.action === 'delete') {
+        compensatingDeleteTriggered = true;
+        return json({ status: 'success' });
+      }
+      return json({ success: true });
+    }
+
+    const address = new URL(urlStr);
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'admin_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'calendar_events') {
+      if (init.method === 'POST') {
+        inserted = true;
+        return json({ id: 'ev_race_1', sync_status: 'pending_push', calendar_type: 'all' });
+      }
+      if (init.method === 'PATCH') {
+        const payload = JSON.parse(init.body || '{}');
+        // 條件更新：因為該列已被使用者併發改為 pending_delete，帶有 sync_status=eq.pending_push 的更新匹配 0 列
+        if (address.searchParams.get('sync_status') === 'eq.pending_push') {
+          return json([]);
+        }
+        if (payload.sync_status === 'synced') {
+          overwroteToSynced = true;
+        }
+        return json({ id: 'ev_race_1', ...payload });
+      }
+      if (init.method === 'DELETE') {
+        hardDeleteCalled = true;
+        return json({ id: 'ev_race_1' });
+      }
+      // GET requests: 插入前為 null，插入後重新查詢時為 pending_delete
+      if (!inserted) {
+        return json(null);
+      }
+      return json({ id: 'ev_race_1', sync_status: 'pending_delete', calendar_type: 'all' });
+    }
+    throw new Error(`Unexpected call: ${url}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/calendar.js?test=${++moduleId}`);
+  let statusCode;
+  await handler(
+    {
+      method: 'POST',
+      headers: { 'x-line-uid': 'admin_uid', 'x-line-id-token': 'test-token' },
+      body: {
+        title: '併發刪除防覆蓋測試',
+        startTime: '2026-10-01T09:00:00+08:00',
+        endTime: '2026-10-01T10:00:00+08:00',
+        calendarType: 'all',
+        client_event_id: 'ev_race_1'
+      }
+    },
+    {
+      setHeader() {},
+      status(code) { statusCode = code; return this; },
+      json() { return this; },
+      end() {}
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  await new Promise(r => setTimeout(r, 200));
+
+  assert.equal(overwroteToSynced, false, 'Must NEVER overwrite concurrent pending_delete with synced');
+  assert.equal(compensatingDeleteTriggered, true, 'Must trigger compensating delete for orphaned event');
+  assert.equal(hardDeleteCalled, true, 'Must clean up local row after compensating delete succeeds');
+});
+
 
 

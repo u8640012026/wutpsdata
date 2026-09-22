@@ -629,42 +629,89 @@ export default async function handler(req, res) {
           if (gasResult.success && gasResult.data?.eventId) {
             const gasEventId = gasResult.data.eventId;
 
-            // 競態檢查：在寫回 gcal_event_id 前，先查詢資料庫該筆活動當前狀態
+            // 關鍵競態防護 (1)：原子條件更新，僅當仍為 pending_push 時才寫入 synced
+            // 若使用者在此期間已發出 DELETE（狀態已轉為 pending_delete），此條件更新將匹配 0 列，杜絕覆蓋刪除意圖！
+            const { data: updatedRows, error: syncUpdateErr } = await supabase
+              .from('calendar_events')
+              .update({ gcal_event_id: gasEventId, sync_status: 'synced', sync_error: null })
+              .eq('id', eventRowId)
+              .eq('sync_status', 'pending_push')
+              .select('id, sync_status, calendar_type');
+
+            if (syncUpdateErr) {
+              console.warn('Sync status conditional update note:', syncUpdateErr.message);
+            }
+
+            // 若成功更新 1 列，代表建立期間無併發刪除，安全完成
+            if (updatedRows && updatedRows.length > 0) {
+              return;
+            }
+
+            // 關鍵競態防護 (2)：若未匹配到列，重新查詢最新狀態以判斷是否有併發刪除
             const { data: latestRow } = await supabase
               .from('calendar_events')
               .select('id, sync_status, calendar_type')
               .eq('id', eventRowId)
               .maybeSingle();
 
-            // 若活動在 Google 建立期間已被使用者要求刪除 (pending_delete) 或已不存在：
+            // 若活動已不存在或被標記為 pending_delete：執行補償性 Google 刪除
             if (!latestRow || latestRow.sync_status === 'pending_delete') {
               console.log(`[Calendar Sync] Event ${eventRowId} marked pending_delete or removed during creation. Compensating delete for ${gasEventId}`);
-              try {
-                await sendGasWriteWithRetry({
-                  action: 'delete',
-                  eventId: gasEventId,
-                  calendarType: calendarType || latestRow?.calendar_type || 'all'
-                });
-              } catch (compErr) {
-                console.error('[Calendar Sync] Compensating GAS delete failed:', compErr.message);
+              
+              // 先在本地妥善保存 gcal_event_id，防止追蹤資訊丟失
+              if (latestRow) {
+                await supabase
+                  .from('calendar_events')
+                  .update({ gcal_event_id: gasEventId, sync_status: 'pending_delete' })
+                  .eq('id', eventRowId);
               }
-              await supabase.from('calendar_events').delete().eq('id', eventRowId);
+
+              const compGasResult = await sendGasWriteWithRetry({
+                action: 'delete',
+                eventId: gasEventId,
+                calendarType: calendarType || latestRow?.calendar_type || 'all'
+              });
+
+              const isCompensated = compGasResult?.success || (
+                compGasResult?.error && (
+                  compGasResult.error.toLowerCase().includes('not found') ||
+                  compGasResult.error.includes('404')
+                )
+              );
+
+              if (isCompensated) {
+                // Google 日曆已確認刪除，執行本地硬刪除並嚴格校驗資料庫錯誤
+                const { error: hardDelErr } = await supabase.from('calendar_events').delete().eq('id', eventRowId);
+                if (hardDelErr) {
+                  console.error('[Calendar Sync] Failed to hard delete event after compensating GAS delete:', hardDelErr.message);
+                  if (latestRow) {
+                    await supabase
+                      .from('calendar_events')
+                      .update({
+                        sync_status: 'failed_delete',
+                        sync_error: 'Google 已刪除，但本地清理失敗：' + hardDelErr.message
+                      })
+                      .eq('id', eventRowId);
+                  }
+                }
+              } else {
+                // 補償刪除失敗（如 permission denied 或網路問題）：嚴禁直接硬刪除本地！
+                // 保存 failed_delete 與 sync_error，保留孤兒活動追蹤以便日後重試或排程清理
+                console.error('[Calendar Sync] Compensating GAS delete failed, retaining failed_delete record:', compGasResult?.error);
+                if (latestRow) {
+                  await supabase
+                    .from('calendar_events')
+                    .update({
+                      gcal_event_id: gasEventId,
+                      sync_status: 'failed_delete',
+                      sync_error: compGasResult?.error || '補償性 Google 日曆刪除失敗'
+                    })
+                    .eq('id', eventRowId);
+                }
+              }
               return;
             }
 
-            const { error: syncUpdateErr } = await supabase
-              .from('calendar_events')
-              .update({ gcal_event_id: gasEventId, sync_status: 'synced', sync_error: null })
-              .eq('id', eventRowId);
-
-            if (syncUpdateErr) {
-              console.warn('Sync status update note:', syncUpdateErr.message);
-              // 若正式資料庫尚未執行 migration，降級僅更新 gcal_event_id
-              await supabase
-                .from('calendar_events')
-                .update({ gcal_event_id: gasEventId })
-                .eq('id', eventRowId);
-            }
             return;
           }
 
@@ -687,7 +734,8 @@ export default async function handler(req, res) {
               sync_status: 'failed',
               sync_error: failReason
             })
-            .eq('id', eventRowId);
+            .eq('id', eventRowId)
+            .eq('sync_status', 'pending_push');
 
           if (failUpdateErr) {
             console.warn('Failed sync_status update note:', failUpdateErr.message);

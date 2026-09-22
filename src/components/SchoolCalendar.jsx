@@ -110,7 +110,7 @@ export default function SchoolCalendar({ isFullScreen, onToggleFullScreen }) {
       let query = supabase
         .from('calendar_events')
         .select('*')
-        .not('sync_status', 'in', '("pending_delete","failed_delete")');
+        .or('sync_status.is.null,sync_status.not.in.("pending_delete","failed_delete")');
       if (filterType === 'wutai') {
         query = query.in('calendar_type', ['all', 'wutai']);
       } else if (filterType === 'ligu') {

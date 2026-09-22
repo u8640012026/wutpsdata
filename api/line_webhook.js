@@ -206,7 +206,6 @@ async function callGroq(systemPrompt, userMessage, groqApiKey) {
   const candidateModels = [
     'openai/gpt-oss-120b',
     'openai/gpt-oss-20b',
-    'qwen/qwen3.6-27b',
     'qwen/qwen3.8-27b'
   ];
 

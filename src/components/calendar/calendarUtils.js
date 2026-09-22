@@ -28,7 +28,7 @@ export function parseToTaipeiParts(isoString, defaultTime = '09:00') {
 }
 
 // SWR 前端持久化與記憶體雙層快取（保證切換頁面 0 毫秒極速瞬開）
-export const CACHE_PREFIX = 'wutps_cal_v3_';
+export const CACHE_PREFIX = 'wutps_cal_v4_';
 export const calendarMemoryCache = {
   all: null,
   wutai: null,
@@ -83,7 +83,10 @@ export function clearAllCalendarCache() {
       localStorage.removeItem(CACHE_PREFIX + 'all');
       localStorage.removeItem(CACHE_PREFIX + 'wutai');
       localStorage.removeItem(CACHE_PREFIX + 'ligu');
-      // 同步清理歷史舊版快取
+      // 同步清理歷史舊版快取 (v3, 舊無前綴版)
+      localStorage.removeItem('wutps_cal_v3_all');
+      localStorage.removeItem('wutps_cal_v3_wutai');
+      localStorage.removeItem('wutps_cal_v3_ligu');
       localStorage.removeItem('wutps_cal_all');
       localStorage.removeItem('wutps_cal_wutai');
       localStorage.removeItem('wutps_cal_ligu');

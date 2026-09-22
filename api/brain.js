@@ -139,19 +139,11 @@ export default async function handler(req, res) {
           .single();
 
         if (error) {
-          // 若資料庫尚未建立 (dept_id, file_name) 唯一索引，降級至一般 insert
           if (error.message?.includes('ON CONFLICT') || error.code === '42P10') {
-            const { data: fallbackData, error: fallbackErr } = await supabase
-              .from('brain_documents')
-              .insert([newRecord])
-              .select()
-              .single();
-
-            if (fallbackErr) {
-              console.error('brain_documents fallback insert error:', fallbackErr.message);
-              return res.status(500).json({ error: '知識庫文件儲存失敗：' + fallbackErr.message });
-            }
-            return res.status(201).json(fallbackData);
+            console.error('brain_documents missing unique constraint error:', error.message);
+            return res.status(500).json({
+              error: '資料庫尚未套用 (dept_id, file_name) 唯一索引約束，已拒絕非原子寫入以防止跨執行個體重複。請管理員於 Supabase 執行 supabase_brain_documents.sql 遷移腳本。'
+            });
           }
 
           console.error('brain_documents upsert error:', error.message);

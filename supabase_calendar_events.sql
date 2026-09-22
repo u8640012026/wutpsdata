@@ -30,9 +30,11 @@ CREATE INDEX IF NOT EXISTS idx_calendar_events_gcal_id ON public.calendar_events
 CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_gcal_unique ON public.calendar_events (gcal_event_id) WHERE gcal_event_id IS NOT NULL AND gcal_event_id != '';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_unique_time ON public.calendar_events (calendar_type, title, start_time);
 
--- 資料庫欄位遷移（若資料表已存在，自動補齊狀態欄位）
+-- 資料庫欄位遷移（若資料表已存在，自動補齊狀態欄位並確保歷史舊資料不為 NULL）
 ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS sync_status TEXT DEFAULT 'synced';
 ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS sync_error TEXT DEFAULT NULL;
+UPDATE public.calendar_events SET sync_status = 'synced' WHERE sync_status IS NULL;
+ALTER TABLE public.calendar_events ALTER COLUMN sync_status SET DEFAULT 'synced';
 
 -- 啟用 Row-Level Security (RLS)
 ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
