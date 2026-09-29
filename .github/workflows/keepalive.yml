@@ -1,0 +1,15 @@
+name: Supabase & Vercel Automated Keepalive Heartbeat
+
+on:
+  schedule:
+    # 每 2 天早上 03:00 UTC (台灣時間 11:00) 自動發送保活心跳
+    - cron: '0 3 */2 * *'
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Keepalive API
+        run: |
+          curl -sS -i --max-time 15 "https://wutpsdata.vercel.app/api/keepalive" || true

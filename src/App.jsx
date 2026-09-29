@@ -116,11 +116,11 @@ function App() {
         setIsLoggedIn(true);
         setAuthError(null);
       } else {
-        setAuthError(data.error || '身分查驗未通過');
+        setAuthError(data.message || data.error || '身分查驗未通過');
       }
     } catch (err) {
       console.error('API 驗證失敗', err);
-      setAuthError('連線至校務伺服器進行驗證失敗');
+      setAuthError('連線至校務伺服器進行驗證失敗: ' + (err.message || ''));
     } finally {
       setIsCheckingRole(false);
     }

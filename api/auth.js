@@ -34,7 +34,22 @@ export default async function handler(req, res) {
       .eq('line_uid', verifiedUid)
       .single();
 
-    if (error || !staffData) {
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(401).json({ role: null, error: 'User not found' });
+      }
+      const isConnectionError = /fetch failed|ENOTFOUND|ECONNREFUSED|timeout|503/i.test(error.message || '');
+      if (isConnectionError) {
+        return res.status(503).json({
+          role: null,
+          error: 'DATABASE_PAUSED',
+          message: '校務雲端資料庫連線中斷或處於休眠狀態（Supabase 免費專案超過 7 天無活動），請由管理員登入 Supabase 主控台點擊「Restore project」喚醒。'
+        });
+      }
+      return res.status(500).json({ role: null, error: `資料庫查詢失敗: ${error.message}` });
+    }
+
+    if (!staffData) {
       return res.status(401).json({ role: null, error: 'User not found' });
     }
 
@@ -42,6 +57,14 @@ export default async function handler(req, res) {
     
     return res.status(200).json({ role, staffData });
   } catch (err) {
+    const isConnectionError = /fetch failed|ENOTFOUND|ECONNREFUSED|timeout|503/i.test(err.message || '');
+    if (isConnectionError) {
+      return res.status(503).json({
+        role: null,
+        error: 'DATABASE_PAUSED',
+        message: '校務雲端資料庫連線中斷或處於休眠狀態（Supabase 免費專案超過 7 天無活動），請由管理員登入 Supabase 主控台點擊「Restore project」喚醒。'
+      });
+    }
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 }

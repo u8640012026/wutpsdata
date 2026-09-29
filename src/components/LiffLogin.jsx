@@ -107,26 +107,71 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
 
           {/* 若驗證有具體回傳錯誤，顯示清楚的提示與重登按鈕 */}
           {authError ? (
-            <div className="mb-4 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-center">
-              <p className="text-xs font-bold text-amber-800 dark:text-amber-200 mb-1">
-                ⚠️ 身分驗證未通過或連線憑證已逾期
-              </p>
-              <p className="text-[11px] text-amber-700 dark:text-amber-300 mb-2.5">
-                {authError.includes('User not found')
-                  ? '資料庫白名單中查無此 LINE 帳號，請輸入您的學校公務信箱進行綁定；若您是超級管理者，請使用已授權之帳號登入。'
-                  : `原因：${authError}`}
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  if (liff && typeof liff.logout === 'function') liff.logout();
-                  liff.login();
-                }}
-                className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition active:scale-95"
-              >
-                重新登入 LINE 刷新憑證
-              </button>
-            </div>
+            authError.includes('DATABASE_PAUSED') || authError.includes('休眠') ? (
+              <div className="mb-4 p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 text-center shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/80 flex items-center justify-center mx-auto mb-2 text-xl">
+                  ⏸️
+                </div>
+                <p className="text-sm font-extrabold text-amber-900 dark:text-amber-100 mb-1.5">
+                  校務雲端資料庫目前處於休眠狀態
+                </p>
+                <p className="text-xs text-amber-800 dark:text-amber-200 mb-3 text-left leading-relaxed">
+                  因超過 7 天未有系統查詢，Supabase 免費專案自動進入保護休眠，導致暫時無法驗證身分。<strong>請最高管理者點擊下方按鈕前往 Supabase 喚醒專案</strong>，點選「Restore project」後約 1 分鐘即可恢復！
+                </p>
+                <div className="space-y-2">
+                  <a
+                    href="https://supabase.com/dashboard/project/kxedexdzlnyqkeemepyu"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition active:scale-95"
+                  >
+                    <span>⚡ 前往 Supabase 點擊「Restore project」喚醒</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="w-full px-3 py-2 rounded-xl bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 text-amber-900 dark:text-amber-100 font-bold text-xs transition active:scale-95"
+                  >
+                    🔄 喚醒後點此重新整理畫面
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-4 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-center">
+                <p className="text-xs font-bold text-amber-800 dark:text-amber-200 mb-1">
+                  ⚠️ 身分驗證未通過或連線憑證已逾期
+                </p>
+                <p className="text-[11px] text-amber-700 dark:text-amber-300 mb-2.5">
+                  {authError.includes('User not found')
+                    ? '資料庫白名單中查無此 LINE 帳號，請輸入您的學校公務信箱進行綁定；若您是超級管理者，請使用已授權之帳號登入。'
+                    : `原因：${authError}`}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      if (liff && typeof liff.isInClient === 'function' && liff.isInClient()) {
+                        try {
+                          sessionStorage.clear();
+                          localStorage.clear();
+                        } catch {}
+                        window.location.reload();
+                        return;
+                      }
+                      if (liff && typeof liff.logout === 'function') liff.logout();
+                      if (liff && typeof liff.login === 'function') liff.login();
+                      else window.location.reload();
+                    } catch (e) {
+                      console.warn('重新登入例外容錯:', e);
+                      window.location.reload();
+                    }
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition active:scale-95"
+                >
+                  重新登入 LINE 刷新憑證
+                </button>
+              </div>
+            )
           ) : (
             <p className="text-xs text-center text-blue-500 mb-4 bg-blue-50 dark:bg-blue-950/40 p-2 rounded-lg">
               這是您首次登入，請完成教職員信箱綁定以開通權限。
@@ -137,7 +182,19 @@ export default function LiffLogin({ onLogin, toggleLang, toggleTheme, lang, isDa
             <button
               type="button"
               onClick={() => {
-                if (liff && typeof liff.logout === 'function') liff.logout();
+                try {
+                  if (liff && typeof liff.isInClient === 'function' && liff.isInClient()) {
+                    alert('您目前正處於手機 LINE App 內部瀏覽器。若要更換 LINE 身分，請於 LINE 應用程式切換帳號，或使用手機瀏覽器開啟網頁版。');
+                    return;
+                  }
+                  if (liff && typeof liff.logout === 'function') liff.logout();
+                } catch (e) {
+                  console.warn('LINE 登出例外容錯:', e);
+                }
+                try {
+                  sessionStorage.clear();
+                  localStorage.clear();
+                } catch {}
                 window.location.reload();
               }}
               className="text-[11px] text-stone-400 hover:text-red-500 underline transition"

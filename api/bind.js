@@ -46,8 +46,17 @@ export default async function handler(req, res) {
       .ilike('email', cleanEmail)
       .maybeSingle();
 
+    if (searchError) {
+      const isConnectionError = /fetch failed|ENOTFOUND|ECONNREFUSED|timeout|503/i.test(searchError.message || '');
+      if (isConnectionError) {
+        return res.status(503).json({
+          error: '校務雲端資料庫連線中斷或處於休眠狀態（超過 7 天無活動），請由管理員登入 Supabase 主控台點擊「Restore project」喚醒專案。'
+        });
+      }
+    }
+
     // 如果找不到，直接報錯，拒絕建立幽靈帳號
-    if (searchError || !existingStaff) {
+    if (!existingStaff) {
       await recordAuditLog({
         actor_uid: verifiedUid,
         actor_role: 'system',
@@ -137,6 +146,12 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true });
   } catch (err) {
+    const isConnectionError = /fetch failed|ENOTFOUND|ECONNREFUSED|timeout|503/i.test(err.message || '');
+    if (isConnectionError) {
+      return res.status(503).json({
+        error: '校務雲端資料庫連線中斷或處於休眠狀態（超過 7 天無活動），請由管理員登入 Supabase 主控台點擊「Restore project」喚醒專案。'
+      });
+    }
     console.error('Bind account error:', err);
     return res.status(500).json({ error: err.message });
   }
