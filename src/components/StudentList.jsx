@@ -3,6 +3,7 @@ import { useApp } from '../App';
 import { School, GraduationCap, ArrowLeft, Maximize2, Minimize2 } from 'lucide-react';
 import { isSchoolAdmin, homeroomClass, studentClass } from '../lib/staffAccess';
 import { getAuthHeaders } from '../lib/authHeader';
+import { getStudentFieldValue } from '../lib/studentFields';
 
 export default function StudentList() {
   const { isDark, staffData, liffProfile } = useApp();
@@ -108,7 +109,26 @@ export default function StudentList() {
     { id: 'funding', label: '經費頁', cols: ['午餐費', '代辦費', '平安保險費', '教科書費', '家長會費', '運動服費', '獎助學金'] }
   ];
 
-  const currentCols = tabs.find(t => t.id === activeTab)?.cols || [];
+  // 動態偵測是否有標準分頁以外的 Excel 匯入自訂欄位
+  const standardCols = new Set([
+    ...tabs.flatMap(t => t.cols),
+    'student_id', 'name', 'grade', 'class_name', 'seat_number', 'enroll_type', 'enrollment_type', 'details',
+    '學號', '姓名', '年級', '班級', '座號', '在學或自學', '就學狀態', '就讀狀態'
+  ]);
+
+  const extraCustomCols = Array.from(
+    new Set(
+      students.flatMap(s => Object.keys(s.details || {}))
+        .filter(k => k && !standardCols.has(k))
+    )
+  );
+
+  const displayTabs = [
+    ...tabs,
+    ...(extraCustomCols.length > 0 ? [{ id: 'custom', label: `其他匯入欄位 (${extraCustomCols.length})`, cols: extraCustomCols }] : [])
+  ];
+
+  const currentCols = displayTabs.find(t => t.id === activeTab)?.cols || [];
 
   if (isLoading) {
     return <p className="text-emerald-700 dark:text-emerald-300 text-center py-8 font-bold animate-pulse text-sm">載入學生資料中...</p>;
@@ -307,12 +327,7 @@ export default function StudentList() {
                   
                   {/* 動態資料儲存格 */}
                   {currentCols.map(col => {
-                    // 特殊處理欄位容錯
-                    let val = details[col] || details[col.replace('頁', '')] || '';
-                    if (col === '性別' && !val) val = details['姓別'] || ''; 
-                    
-                    // 生日格式處理
-                    if (col === '生日') val = formatExcelDate(val);
+                    const val = getStudentFieldValue(student, col);
 
                     return (
                       <td key={col} className={`px-2.5 py-1.5 sm:p-3 border-r ${borderColor} text-stone-700 dark:text-stone-200 text-xs sm:text-sm max-w-[200px] sm:max-w-[250px] truncate`}>
@@ -329,7 +344,7 @@ export default function StudentList() {
 
       {/* Excel 底部切換頁籤 (Bottom Tabs) */}
       <div className={`flex overflow-x-auto p-2 gap-2 border-t ${borderColor} ${isDark ? 'bg-slate-950' : 'bg-stone-100'} scrollbar-hide`}>
-        {tabs.map(tab => (
+        {displayTabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}

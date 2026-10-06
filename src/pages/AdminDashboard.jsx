@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import liff from '@line/liff';
 import StaffList from '../components/StaffList';
 import StudentList from '../components/StudentList';
+import { FIELD_SYNONYMS, normalizeKey, findValueByAliases } from '../lib/studentFields';
 import BulletinBoard from '../components/BulletinBoard';
 import TimetableViewer from '../components/TimetableViewer';
 import SchoolBrain from '../components/SchoolBrain';
@@ -106,18 +107,52 @@ export default function AdminDashboard() {
 
         setUploadStatus(`檔案讀取成功，共 ${data.length} 筆資料。開始上傳至資料庫...`);
 
-        const formattedData = data.map(row => {
-          const { 學號, 姓名, 年級, 班級, 座號, 在學或自學, 父親電話, 母親電話, ...otherDetails } = row;
+        const formattedData = data.map(rawRow => {
+          // 1. 清理與正規化所有鍵名（去空格、換行、零寬字元）
+          const cleanRow = {};
+          for (const rawKey in rawRow) {
+            const cleanKey = normalizeKey(rawKey);
+            if (cleanKey) {
+              cleanRow[cleanKey] = rawRow[rawKey];
+            }
+          }
+
+          // 2. 透過同義詞庫智慧取得核心主鍵
+          const studentId = String(findValueByAliases(cleanRow, FIELD_SYNONYMS.student_id) || '').trim();
+          const name = String(findValueByAliases(cleanRow, FIELD_SYNONYMS.name) || '').trim();
+          const grade = String(findValueByAliases(cleanRow, FIELD_SYNONYMS.grade) || '').trim();
+          const className = String(findValueByAliases(cleanRow, FIELD_SYNONYMS.class_name) || '').trim();
+          const seatRaw = findValueByAliases(cleanRow, FIELD_SYNONYMS.seat_number);
+          const seatNumber = seatRaw !== '' && !isNaN(Number(seatRaw)) ? Number(seatRaw) : null;
+          const enrollType = String(findValueByAliases(cleanRow, FIELD_SYNONYMS.enroll_type) || '在').trim();
+          const fatherPhone = String(findValueByAliases(cleanRow, FIELD_SYNONYMS['父親電話']) || '').trim();
+          const motherPhone = String(findValueByAliases(cleanRow, FIELD_SYNONYMS['母親電話']) || '').trim();
+
+          // 3. 建立 details 物件：完整保留所有原始欄位，並將別名主動補入標準鍵值中
+          const details = { ...cleanRow };
+          for (const [canonicalKey, aliases] of Object.entries(FIELD_SYNONYMS)) {
+            if (['student_id', 'name', 'grade', 'class_name', 'seat_number', 'enroll_type'].includes(canonicalKey)) continue;
+            const val = findValueByAliases(cleanRow, aliases);
+            if (val !== undefined && val !== null && String(val).trim() !== '') {
+              details[canonicalKey] = val; // 確保標準 key 100% 存在
+            }
+          }
+
+          // 確保電話號碼在 details 內也完整存在
+          if (fatherPhone && !details['父親電話']) details['父親電話'] = fatherPhone;
+          if (motherPhone && !details['母親電話']) details['母親電話'] = motherPhone;
+
           return {
-            student_id: String(學號 || row.student_id || ''),
-            name: String(姓名 || row.name || ''),
-            grade: String(年級 || row.grade || ''),
-            class_name: String(班級 || row.class_name || ''),
-            seat_number: 座號 ? Number(座號) : (row.seat_number ? Number(row.seat_number) : null),
-            enrollment_type: String(在學或自學 || row.enrollment_type || '在'),
-            father_phone: String(父親電話 || row.father_phone || ''),
-            mother_phone: String(母親電話 || row.mother_phone || ''),
-            details: otherDetails
+            student_id: studentId,
+            name: name,
+            grade: grade,
+            class_name: className,
+            seat_number: seatNumber,
+            enroll_type: enrollType,
+            enrollment_type: enrollType,
+            father_phone: fatherPhone,
+            mother_phone: motherPhone,
+            details: details
           };
         }).filter(item => item.student_id && item.name);
 

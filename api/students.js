@@ -76,7 +76,11 @@ export default async function handler(req, res) {
       const finalData = studentsData.map(s => {
         const oldDetails = existingMap[s.student_id] || {};
         const mergedDetails = { ...oldDetails, ...s.details }; 
-        return { ...s, details: mergedDetails };
+        return {
+          ...s,
+          enroll_type: s.enroll_type || s.enrollment_type || '在',
+          details: mergedDetails
+        };
       });
 
       // 3. 寫入學生資料
