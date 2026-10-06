@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApp } from '../App';
-import { School, GraduationCap, ArrowLeft, Maximize2, Minimize2 } from 'lucide-react';
+import { School, GraduationCap, ArrowLeft, Maximize2, Minimize2, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw } from 'lucide-react';
 import { isSchoolAdmin, homeroomClass, studentClass } from '../lib/staffAccess';
 import { getAuthHeaders } from '../lib/authHeader';
-import { getStudentFieldValue } from '../lib/studentFields';
+import { getStudentFieldValue, defaultStudentComparator, getClassSortRank } from '../lib/studentFields';
 
 export default function StudentList() {
   const { isDark, staffData, liffProfile } = useApp();
@@ -22,6 +22,7 @@ export default function StudentList() {
   
   const [activeTab, setActiveTab] = useState('basic');
   const [showHomeschooled, setShowHomeschooled] = useState(false);
+  const [sortConfig, setSortConfig] = useState({ key: 'default', direction: 'asc' });
 
   const fetchStudents = useCallback(async () => {
     setIsLoading(true);
@@ -92,6 +93,58 @@ export default function StudentList() {
     
     return true;
   });
+
+  const handleSort = (key) => {
+    setSortConfig(prev => {
+      if (prev.key === key) {
+        if (prev.direction === 'asc') return { key, direction: 'desc' };
+        return { key: 'default', direction: 'asc' }; // 再次點擊還原為預設排序
+      }
+      return { key, direction: 'asc' };
+    });
+  };
+
+  const resetSort = () => {
+    setSortConfig({ key: 'default', direction: 'asc' });
+  };
+
+  // 排序計算：預設一甲~六甲、一乙~六乙，再依座號升冪；若老師自選則套用自選排序
+  const sortedStudents = useMemo(() => {
+    const list = [...filteredStudents];
+
+    if (sortConfig.key === 'default') {
+      list.sort(defaultStudentComparator);
+      if (sortConfig.direction === 'desc') list.reverse();
+      return list;
+    }
+
+    list.sort((a, b) => {
+      let res = 0;
+      if (sortConfig.key === 'seat_number') {
+        const seatA = (a.seat_number !== null && a.seat_number !== undefined && !isNaN(Number(a.seat_number))) ? Number(a.seat_number) : 999;
+        const seatB = (b.seat_number !== null && b.seat_number !== undefined && !isNaN(Number(b.seat_number))) ? Number(b.seat_number) : 999;
+        res = seatA - seatB;
+      } else if (sortConfig.key === 'name') {
+        res = String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hant');
+      } else if (sortConfig.key === 'student_id') {
+        res = String(a.student_id || '').localeCompare(String(b.student_id || ''), undefined, { numeric: true });
+      } else if (sortConfig.key === 'class_name') {
+        res = getClassSortRank(studentClass(a)) - getClassSortRank(studentClass(b));
+      } else {
+        const valA = String(getStudentFieldValue(a, sortConfig.key) || '');
+        const valB = String(getStudentFieldValue(b, sortConfig.key) || '');
+        res = valA.localeCompare(valB, 'zh-Hant', { numeric: true });
+      }
+
+      // 次排序：預設班級與座號保證穩定性
+      if (res === 0) {
+        return defaultStudentComparator(a, b);
+      }
+      return sortConfig.direction === 'asc' ? res : -res;
+    });
+
+    return list;
+  }, [filteredStudents, sortConfig]);
 
   const cardBg = isDark ? 'bg-slate-900' : 'bg-white';
   const textColor = isDark ? 'text-stone-100' : 'text-stone-900';
@@ -255,7 +308,40 @@ export default function StudentList() {
           </div>
         </div>
         
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 flex-wrap">
+          {/* 排序控制下拉選單 */}
+          <div className="flex items-center gap-1">
+            <select
+              value={sortConfig.key}
+              onChange={(e) => setSortConfig({ key: e.target.value, direction: 'asc' })}
+              aria-label="排序依據"
+              className={`text-xs font-bold px-2 py-1.5 rounded-xl border outline-none transition cursor-pointer max-w-[190px] sm:max-w-none truncate ${
+                isDark 
+                  ? 'bg-slate-800 border-slate-700 text-stone-200' 
+                  : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-stone-100'
+              }`}
+            >
+              <option value="default">預設 (一甲~六甲、一乙~六乙、座號)</option>
+              <option value="seat_number">依座號升冪</option>
+              <option value="name">依姓名筆畫</option>
+              <option value="student_id">依學號升冪</option>
+              {sortConfig.key !== 'default' && !['seat_number', 'name', 'student_id'].includes(sortConfig.key) && (
+                <option value={sortConfig.key}>目前欄位：{sortConfig.key} ({sortConfig.direction === 'asc' ? '升冪' : '降冪'})</option>
+              )}
+            </select>
+            {sortConfig.key !== 'default' && (
+              <button
+                onClick={resetSort}
+                title="還原預設排序 (一甲~六甲、一乙~六乙、座號)"
+                className={`p-1.5 rounded-xl border transition ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+                }`}
+              >
+                <RotateCcw size={13} />
+              </button>
+            )}
+          </div>
+
           {/* 全螢幕切換按鈕 */}
           <button 
             onClick={() => setIsFullscreen(!isFullscreen)}
@@ -293,7 +379,7 @@ export default function StudentList() {
             <span className="sm:hidden">自學生</span>
           </label>
           <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2 sm:px-3 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800 whitespace-nowrap">
-            {filteredStudents.length} 人
+            {sortedStudents.length} 人
           </span>
         </div>
       </div>
@@ -305,26 +391,52 @@ export default function StudentList() {
           <thead className={`sticky top-0 z-20 ${tableHeaderBg} shadow-sm`}>
             <tr>
               {/* 凍結的左側第一欄 */}
-              <th className={`sticky left-0 z-30 px-2.5 py-2 sm:p-3 font-extrabold text-emerald-900 dark:text-emerald-200 border-r border-b ${borderColor} ${tableHeaderBg} text-xs sm:text-sm`}>
-                班級 - 座號 - 姓名
+              <th 
+                onClick={() => handleSort('default')}
+                className={`sticky left-0 z-30 px-2.5 py-2 sm:p-3 font-extrabold text-emerald-900 dark:text-emerald-200 border-r border-b ${borderColor} ${tableHeaderBg} text-xs sm:text-sm cursor-pointer select-none hover:bg-emerald-200/70 dark:hover:bg-slate-700 transition`}
+                title="點擊切換 班級與座號排序（甲班在上、乙班在下）"
+              >
+                <div className="flex items-center justify-between gap-1.5">
+                  <span>班級 - 座號 - 姓名</span>
+                  {sortConfig.key === 'default' ? (
+                    sortConfig.direction === 'asc' ? <ArrowUp size={13} className="text-emerald-700 dark:text-emerald-400 shrink-0" /> : <ArrowDown size={13} className="text-emerald-700 dark:text-emerald-400 shrink-0" />
+                  ) : (
+                    <ArrowUpDown size={12} className="opacity-40 shrink-0" />
+                  )}
+                </div>
               </th>
               {/* 動態展開的資料欄位 */}
-              {currentCols.map(col => (
-                <th key={col} className={`px-2.5 py-2 sm:p-3 font-bold text-stone-800 dark:text-stone-200 border-r border-b ${borderColor} text-xs sm:text-sm`}>
-                  {col}
-                </th>
-              ))}
+              {currentCols.map(col => {
+                const isSorted = sortConfig.key === col;
+                return (
+                  <th 
+                    key={col} 
+                    onClick={() => handleSort(col)}
+                    className={`px-2.5 py-2 sm:p-3 font-bold text-stone-800 dark:text-stone-200 border-r border-b ${borderColor} text-xs sm:text-sm cursor-pointer select-none hover:bg-emerald-200/50 dark:hover:bg-slate-700/60 transition`}
+                    title={`點擊依「${col}」排序`}
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span>{col}</span>
+                      {isSorted ? (
+                        sortConfig.direction === 'asc' ? <ArrowUp size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" /> : <ArrowDown size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      ) : (
+                        <ArrowUpDown size={11} className="opacity-30 shrink-0" />
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {filteredStudents.length === 0 && (
+            {sortedStudents.length === 0 && (
               <tr>
                 <td colSpan={currentCols.length + 1} className="p-8 text-center text-stone-400 font-bold">
                   目前無符合條件的學生資料
                 </td>
               </tr>
             )}
-            {filteredStudents.map((student, idx) => {
+            {sortedStudents.map((student, idx) => {
               const details = student.details || {};
               const isEven = idx % 2 === 0;
               const rowBg = isDark ? (isEven ? 'bg-slate-900' : 'bg-slate-800/40') : (isEven ? 'bg-white' : 'bg-emerald-50/30');

@@ -6,7 +6,10 @@ import {
   findValueByAliases,
   formatStudentDate,
   inferGradeAndClass,
-  getStudentFieldValue
+  getStudentFieldValue,
+  CLASS_SORT_ORDER,
+  getClassSortRank,
+  defaultStudentComparator
 } from '../src/lib/studentFields.js';
 
 test('normalizeKey removes spaces, full-width spaces and invisible characters', () => {
@@ -163,4 +166,43 @@ test('getStudentFieldValue resolves fields from details, aliases, or top-level s
   assert.equal(getStudentFieldValue(student, '英文名'), 'Johnny');
   // 獎學金
   assert.equal(getStudentFieldValue(student, '獎學金'), '原住民優秀學生獎學金');
+});
+
+test('defaultStudentComparator sorts by class (一甲~六甲 then 一乙~六乙) then by seat_number', () => {
+  const list = [
+    { student_id: '1', grade: '二', class_name: '乙', seat_number: 1, name: 'A' },
+    { student_id: '2', grade: '一', class_name: '乙', seat_number: 5, name: 'B' },
+    { student_id: '3', grade: '六', class_name: '甲', seat_number: 2, name: 'C' },
+    { student_id: '4', grade: '一', class_name: '甲', seat_number: 10, name: 'D' },
+    { student_id: '5', grade: '一', class_name: '甲', seat_number: 2, name: 'E' },
+    { student_id: '6', grade: '三', class_name: '甲', seat_number: 1, name: 'F' },
+    { student_id: '7', grade: '六', class_name: '乙', seat_number: 1, name: 'G' }
+  ];
+
+  list.sort(defaultStudentComparator);
+
+  const order = list.map(s => `${s.grade}${s.class_name}-${s.seat_number}`);
+  assert.deepEqual(order, [
+    '一甲-2',
+    '一甲-10',
+    '三甲-1',
+    '六甲-2',
+    '一乙-5',
+    '二乙-1',
+    '六乙-1'
+  ]);
+});
+
+test('getClassSortRank correctly maps all 12 WUTPS classes with Jia before Yi', () => {
+  const expectedClasses = [
+    '一甲', '二甲', '三甲', '四甲', '五甲', '六甲',
+    '一乙', '二乙', '三乙', '四乙', '五乙', '六乙'
+  ];
+  for (let i = 0; i < expectedClasses.length; i++) {
+    assert.equal(getClassSortRank(expectedClasses[i]), i);
+  }
+  // 支援 1甲, 6乙 等阿拉伯數字寫法
+  assert.equal(getClassSortRank('1甲'), 0);
+  assert.equal(getClassSortRank('6乙'), 11);
+  assert.equal(getClassSortRank('未知班級'), 999);
 });

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { isSchoolAdmin, homeroomClass, studentClass } from '../src/lib/staffAccess.js';
+import { defaultStudentComparator } from '../src/lib/studentFields.js';
 import { authenticateApiRequest } from './line_auth.js';
 
 const supabase = createClient(
@@ -30,9 +31,9 @@ export default async function handler(req, res) {
       const { data, error } = await query;
       if (error) throw error;
 
-      // 根據座號轉為數字排序
+      // 預設排序：班級升冪（甲班在上：一甲~六甲；乙班在下：一乙~六乙），第二排序為座號升冪
       const allowedStudents = canViewAll ? data : data.filter(student => studentClass(student) === assignedClass);
-      const sortedData = allowedStudents.sort((a, b) => parseInt(a.seat_number || '0') - parseInt(b.seat_number || '0'));
+      const sortedData = allowedStudents.sort(defaultStudentComparator);
       return res.status(200).json(sortedData);
     } 
     

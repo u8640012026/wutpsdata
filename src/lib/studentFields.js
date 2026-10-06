@@ -241,3 +241,53 @@ export function getStudentFieldValue(student, colName) {
 
   return '';
 }
+
+/**
+ * 全校 12 班標準排序序號
+ * 甲班在上（一甲~六甲），乙班在下（一乙~六乙）
+ */
+export const CLASS_SORT_ORDER = [
+  '一甲', '二甲', '三甲', '四甲', '五甲', '六甲',
+  '一乙', '二乙', '三乙', '四乙', '五乙', '六乙'
+];
+
+/**
+ * 取得班級之排序權重
+ * @param {string} className 如 "一甲"、"1甲"、"一年甲班"
+ * @returns {number} 0 ~ 11，非標準班級為 999
+ */
+export function getClassSortRank(className) {
+  const normalized = String(className || '')
+    .replace(/[年級班\s]/g, '')
+    .replace(/[1-6]/g, digit => '一二三四五六'[Number(digit) - 1]);
+  const index = CLASS_SORT_ORDER.indexOf(normalized);
+  return index !== -1 ? index : 999;
+}
+
+/**
+ * 預設學生排序比對函式：
+ * 第一排序：班級升冪（甲班在上：一甲~六甲；乙班在下：一乙~六乙）
+ * 第二排序：座號升冪（1, 2, 3, ...）
+ * 第三排序：學號升冪（穩定排序）
+ */
+export function defaultStudentComparator(a, b) {
+  const classA = `${a.grade || ''}${a.class_name || ''}`;
+  const classB = `${b.grade || ''}${b.class_name || ''}`;
+  const rankA = getClassSortRank(classA);
+  const rankB = getClassSortRank(classB);
+
+  // 第一排序：班級（甲在上：一甲~六甲，乙在下：一乙~六乙）
+  if (rankA !== rankB) {
+    return rankA - rankB;
+  }
+
+  // 第二排序：座號升冪
+  const seatA = (a.seat_number !== null && a.seat_number !== undefined && !isNaN(Number(a.seat_number))) ? Number(a.seat_number) : 999;
+  const seatB = (b.seat_number !== null && b.seat_number !== undefined && !isNaN(Number(b.seat_number))) ? Number(b.seat_number) : 999;
+  if (seatA !== seatB) {
+    return seatA - seatB;
+  }
+
+  // 第三排序：學號升冪
+  return String(a.student_id || '').localeCompare(String(b.student_id || ''), undefined, { numeric: true });
+}
