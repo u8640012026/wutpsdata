@@ -1,15 +1,45 @@
-name: Supabase & Vercel Automated Keepalive Heartbeat
+name: 🔄 Wutpsdata Supabase Keep-Alive & Health Check
 
 on:
   schedule:
-    # 每 2 天早上 03:00 UTC (台灣時間 11:00) 自動發送保活心跳
-    - cron: '0 3 */2 * *'
+    # 每天早晚固定各發送一次保活心跳 (UTC 01:00 與 13:00，即台灣時間 09:00 與 21:00)
+    - cron: '0 1,13 * * *'
   workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
 
 jobs:
   heartbeat:
+    name: 🩺 守護打卡與健康探測
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Keepalive API
+      - name: 🚀 發送 Supabase REST 資料庫網關探針
         run: |
-          curl -sS -i --max-time 15 "https://wutpsdata.vercel.app/api/keepalive" || true
+          echo "======================================================="
+          echo "🏫 霧臺國小 校務行政大平台 - Supabase 自動保活與健康巡檢"
+          echo "======================================================="
+          SUPABASE_URL="https://kxedexdzlnyqkeemepyu.supabase.co"
+          SUPABASE_KEY="${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_wDxB3SDN4I5F5_XImtCQXQ_-tX8K_pY' }}"
+
+          HTTP_STATUS=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/staff?select=id&limit=1" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}")
+
+          echo "HTTP 狀態碼: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" -eq 200 ]; then
+            echo "✅ 成功打卡！Supabase 運作健康，7 天無活動休眠計時器已成功重置！"
+            echo "📊 探測回應: $(cat /tmp/resp.json)"
+          else
+            echo "⚠️ 連線狀態碼: $HTTP_STATUS"
+            cat /tmp/resp.json || true
+          fi
+
+      - name: 📥 檢出程式碼以進行 GitHub 保活判定
+        uses: actions/checkout@v4
+
+      - name: 🛡️ 自動重置 GitHub 60 天活動計時器 (防止 GitHub Actions 休眠)
+        uses: gautamkrishnar/keepalive-workflow@v2
+        continue-on-error: true
