@@ -63,22 +63,26 @@ export default async function handler(req, res) {
       const studentIds = studentsData.map(s => s.student_id);
       const { data: existingStudents } = await supabase
         .from('students')
-        .select('student_id, details')
+        .select('student_id, grade, class_name, seat_number, enroll_type, details')
         .in('student_id', studentIds);
       
       const existingMap = {};
       if (existingStudents) {
         existingStudents.forEach(s => {
-          existingMap[s.student_id] = s.details || {};
+          existingMap[s.student_id] = s;
         });
       }
 
       const finalData = studentsData.map(s => {
-        const oldDetails = existingMap[s.student_id] || {};
+        const old = existingMap[s.student_id] || {};
+        const oldDetails = old.details || {};
         const mergedDetails = { ...oldDetails, ...s.details }; 
         return {
           ...s,
-          enroll_type: s.enroll_type || s.enrollment_type || '在',
+          grade: s.grade || old.grade || '',
+          class_name: s.class_name || old.class_name || '',
+          seat_number: (s.seat_number !== null && s.seat_number !== undefined) ? s.seat_number : (old.seat_number ?? null),
+          enroll_type: s.enroll_type || s.enrollment_type || old.enroll_type || '在',
           details: mergedDetails
         };
       });

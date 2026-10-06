@@ -100,20 +100,21 @@ export default function StudentList() {
   const borderColor = isDark ? 'border-slate-800' : 'border-emerald-200';
 
   const tabs = [
-    { id: 'basic', label: '基本資料', cols: ['性別', '身分證字號', '生日'] }, // 移除就讀狀態
+    { id: 'basic', label: '基本資料', cols: ['性別', '身分證字號', '生日', '是否在學'] },
     { id: 'family', label: '家庭資料', cols: ['父親', '父親電話', '母親', '母親電話', '戶籍地址', '通訊地址'] },
-    { id: 'health', label: '健康頁', cols: ['緊急連絡人', '緊急聯絡人電話', '特殊病況', '緊急送醫處'] },
-    { id: 'indigenous', label: '族語頁', cols: ['族名', '族別', '語系', '族語認證', '新增族語註記'] },
-    { id: 'english', label: '英語頁', cols: ['英語名', '新增英語註記'] },
-    { id: 'status', label: '身分欄位頁', cols: ['中低軍公教', '特教生', '輔導個案'] },
-    { id: 'funding', label: '經費頁', cols: ['午餐費', '代辦費', '平安保險費', '教科書費', '家長會費', '運動服費', '獎助學金'] }
+    { id: 'health', label: '健康與送醫', cols: ['緊急聯絡人(關係)', '連絡電話', '特殊病況', '緊急送醫處'] },
+    { id: 'indigenous', label: '族語與本土語', cols: ['族名', '族別', '語系', '族語認證', '新增族語註記'] },
+    { id: 'english', label: '英語能力', cols: ['英文名', '新增英語註記'] },
+    { id: 'status', label: '身分與特教', cols: ['中低軍公教', '身心障礙手冊', '特教生障別', '特教生', '輔導個案'] },
+    { id: 'funding', label: '經費與獎助', cols: ['獎學金', '午餐費', '代辦費', '平安保險費', '教科書費', '家長會費', '運動服費'] }
   ];
 
   // 動態偵測是否有標準分頁以外的 Excel 匯入自訂欄位
   const standardCols = new Set([
     ...tabs.flatMap(t => t.cols),
     'student_id', 'name', 'grade', 'class_name', 'seat_number', 'enroll_type', 'enrollment_type', 'details',
-    '學號', '姓名', '年級', '班級', '座號', '在學或自學', '就學狀態', '就讀狀態'
+    '學號', '姓名', '年級', '班級', '座號', '在學或自學', '就學狀態', '就讀狀態',
+    '緊急連絡人', '緊急聯絡人', '緊急聯絡人電話', '緊急連絡人電話', '聯絡電話', '英語名', '英文名', '獎助學金', '獎學金'
   ]);
 
   const extraCustomCols = Array.from(
@@ -145,12 +146,26 @@ export default function StudentList() {
       ['一乙', '二乙', '三乙'],
       ['四乙', '五乙', '六乙']
     ];
+    const allClasses = classGrid.flat();
+    const isAllSelected = selectedClasses.length === allClasses.length;
 
     return (
       <div className={`rounded-2xl shadow-sm p-6 flex flex-col h-[70vh] border ${isDark ? 'border-slate-800' : 'border-stone-200'} ${cardBg}`}>
-        <div className="flex items-center gap-2.5 mb-2">
-          <School size={22} className="text-emerald-600 dark:text-emerald-400" />
-          <h3 className={`text-xl font-black ${textColor}`}>請點選要檢視的班級 (可複選)</h3>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <div className="flex items-center gap-2.5">
+            <School size={22} className="text-emerald-600 dark:text-emerald-400" />
+            <h3 className={`text-xl font-black ${textColor}`}>請點選要檢視的班級 (可複選)</h3>
+          </div>
+          <button
+            onClick={() => setSelectedClasses(isAllSelected ? [] : [...allClasses])}
+            className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition active:scale-95 ${
+              isAllSelected 
+                ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-700 hover:bg-emerald-100'
+            }`}
+          >
+            {isAllSelected ? '取消全選' : '全選 12 班 (全校名冊)'}
+          </button>
         </div>
         <p className={`text-sm mb-6 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>點擊班級按鈕來選取或取消選取，選取完畢後請按下方的「確定」按鈕。</p>
         
@@ -197,7 +212,11 @@ export default function StudentList() {
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500'
             }`}
           >
-            {selectedClasses.length > 0 ? `確定檢視 ${selectedClasses.length} 個班級` : '請先選取班級'}
+            {selectedClasses.length === allClasses.length
+              ? `確定檢視全校 12 班`
+              : selectedClasses.length > 0 
+                ? `確定檢視 ${selectedClasses.length} 個班級` 
+                : '請先選取班級'}
           </button>
         </div>
       </div>
@@ -205,9 +224,11 @@ export default function StudentList() {
   }
 
   // 跨班檢視時標題
-  const titleText = selectedClasses.length === 1 
-    ? `${selectedClasses[0]} 學生名冊` 
-    : `跨班學生名冊 (共 ${selectedClasses.length} 班)`;
+  const titleText = selectedClasses.length === 12
+    ? '全校學生總名冊 (共 12 班)'
+    : selectedClasses.length === 1 
+      ? `${selectedClasses[0]} 學生名冊` 
+      : `跨班學生名冊 (共 ${selectedClasses.length} 班)`;
 
   // 全螢幕樣式切換
   const containerStyle = isFullscreen
@@ -313,11 +334,18 @@ export default function StudentList() {
                   {/* 凍結的左側儲存格（手機版特化緊縮欄距，釋放右側可視空間；平板電腦維持充裕寬度） */}
                   <td className={`sticky left-0 z-10 px-2 py-1.5 sm:p-3 border-r ${borderColor} ${stickyLeftBg} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
                     <div className="flex items-center gap-1.5 sm:gap-2">
-                      <span className="text-xs sm:text-sm font-bold text-stone-400 dark:text-stone-400 w-7 sm:w-8 shrink-0">{student.grade}{student.class_name}</span>
-                      <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center text-xs sm:text-sm font-bold shrink-0">
-                        {student.seat_number}
+                      <span className="text-xs sm:text-sm font-bold text-stone-400 dark:text-stone-400 w-7 sm:w-8 shrink-0">
+                        {student.grade ? `${student.grade}${student.class_name}` : (student.class_name || '-')}
                       </span>
-                      <span className={`font-bold ${textColor} text-xs sm:text-base w-16 sm:w-20 truncate shrink-0`}>{student.name}</span>
+                      <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center text-xs sm:text-sm font-bold shrink-0">
+                        {student.seat_number ?? '-'}
+                      </span>
+                      <div className="flex flex-col min-w-0">
+                        <span className={`font-bold ${textColor} text-xs sm:text-base w-16 sm:w-20 truncate shrink-0`}>{student.name}</span>
+                        {student.student_id && (
+                          <span className="text-[10px] text-stone-400 font-mono hidden sm:inline">{student.student_id}</span>
+                        )}
+                      </div>
                       {/* 若為自學生，加上小標籤 */}
                       {[student.enroll_type, ...Object.values(details)].some(v => String(v||'').includes('自學') || String(v||'').includes('在家')) && (
                         <span className="text-[10px] sm:text-[11px] bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-300 px-1 py-0.5 rounded font-bold ml-0.5 shrink-0">自學</span>
