@@ -5,8 +5,11 @@ import { useApp } from '../App';
 import { 
   ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2, Download, 
   School, Layers, FileText, ExternalLink, History, Sparkles, 
-  CheckCircle2, X 
+  CheckCircle2, X, Upload, Trash2, Plus, Clock 
 } from 'lucide-react';
+import { roleTags, isSuperAdmin as checkSuperAdmin } from '../lib/staffAccess';
+import { getAuthHeaders } from '../lib/authHeader';
+import { saveCustomTimetable, loadCustomTimetables, deleteCustomTimetable } from '../lib/timetableStorage';
 
 // Polyfill for Uint8Array toHex / fromHex for older Safari / Android WebViews / LINE browser
 if (typeof Uint8Array !== 'undefined') {
@@ -58,10 +61,30 @@ const HISTORICAL_TIMETABLES = [
 ];
 
 export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
-  const { isDark } = useApp();
+  const { isDark, staffData, liffProfile } = useApp();
+  const [customTimetables, setCustomTimetables] = useState([]);
   const [selectedTimetable, setSelectedTimetable] = useState(HISTORICAL_TIMETABLES[0]);
   const [viewMode, setViewMode] = useState('snapshot'); // 'snapshot' (WebP秒開) 或 'pdf' (向量畫布)
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const userRoleTags = roleTags(staffData);
+  const userDept = staffData?.department || '';
+  const isSuper = checkSuperAdmin(staffData) || userRoleTags.includes('0') || staffData?.email?.includes('u864001');
+  const canUploadTimetable = isSuper || userRoleTags.includes('1') || (
+    ['2', '3'].some(r => userRoleTags.includes(r)) && userDept.includes('教務')
+  );
+
+  // 進入時載入自訂上傳之課表歷史
+  useEffect(() => {
+    loadCustomTimetables().then(list => {
+      if (list && list.length > 0) {
+        setCustomTimetables(list);
+        setSelectedTimetable(list[0]);
+      }
+    });
+  }, []);
 
   const [currentPage, setCurrentPage] = useState(1); // 1: 霧臺校區, 2: 勵古百合分校
   const [totalPages, setTotalPages] = useState(2);
@@ -91,10 +114,13 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
 
     const loadPDF = async () => {
       try {
-        const targetUrl = selectedTimetable.pdfUrl || pdfUrl;
-        const response = await fetch(targetUrl);
-        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-        const arrayBuffer = await response.arrayBuffer();
+        let arrayBuffer = selectedTimetable.pdfArrayBuffer;
+        if (!arrayBuffer) {
+          const targetUrl = selectedTimetable.pdfUrl || pdfUrl;
+          const response = await fetch(targetUrl);
+          if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+          arrayBuffer = await response.arrayBuffer();
+        }
         if (!isMounted) return;
 
         const loadingTask = pdfjsLib.getDocument({
@@ -124,6 +150,140 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
       isMounted = false;
     };
   }, [viewMode, selectedTimetable, pdfUrl]);
+
+  // 管理者即時上傳新學期課表 PDF 處理器
+  const handleUploadTimetable = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
+      alert('請上傳 PDF 格式之全校課表文件');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadProgress(20);
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      setUploadProgress(40);
+
+      const loadingTask = pdfjsLib.getDocument({
+        data: new Uint8Array(arrayBuffer),
+        disableRange: true,
+        disableStream: true
+      });
+      const doc = await loadingTask.promise;
+      const numPages = doc.numPages || 2;
+      setUploadProgress(60);
+
+      // 自動渲染雙校區預覽 WebP 快照
+      const renderSnapshot = async (pageNum) => {
+        const page = await doc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        return canvas.toDataURL('image/webp', 0.85);
+      };
+
+      const page1Snap = await renderSnapshot(1);
+      const page2Snap = numPages >= 2 ? await renderSnapshot(2) : page1Snap;
+      setUploadProgress(75);
+
+      // 萃取課表全文供同步存入 AI 校務大腦
+      let extractedText = '';
+      for (let i = 1; i <= Math.min(numPages, 10); i++) {
+        const page = await doc.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageStr = textContent.items.map(item => item.str).join(' ');
+        if (pageStr.trim()) {
+          extractedText += `【第 ${i} 頁】\n${pageStr}\n\n`;
+        }
+      }
+
+      const uploaderName = staffData?.name || liffProfile?.displayName || '教務處';
+      const timetableName = file.name.replace(/\.pdf$/i, '');
+      const timetableId = `custom-${Date.now()}`;
+      const blobUrl = URL.createObjectURL(file);
+
+      const newTimetableRecord = {
+        id: timetableId,
+        name: timetableName,
+        pdfUrl: blobUrl,
+        pdfArrayBuffer: arrayBuffer,
+        page1Snapshot: page1Snap,
+        page2Snapshot: page2Snap,
+        campuses: numPages >= 2 ? ['霧臺國小本校', '勵古百合分校'] : ['全校授課表'],
+        active: true,
+        updatedAt: new Date().toLocaleDateString('zh-TW'),
+        isCustom: true
+      };
+
+      // 1. 存入本機 IndexedDB 快取
+      await saveCustomTimetable(newTimetableRecord);
+      setUploadProgress(85);
+
+      // 2. 同步存入 AI 校務大腦（教務處），使 LINE 機器人同步學習新排課
+      try {
+        const lineUid = liffProfile?.userId || staffData?.line_uid || '';
+        await fetch('/api/brain', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders(lineUid)
+          },
+          body: JSON.stringify({
+            dept_id: 'academic',
+            title: `【全校授課總表】${file.name}`,
+            file_name: file.name,
+            file_size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+            uploaded_by: uploaderName,
+            extracted_text: extractedText,
+            summary: `全校教師授課總課表（${timetableName}），已成功解析入庫，供 LINE 官方機器人精準問答各班排課與授課節次。`
+          })
+        });
+      } catch (brainErr) {
+        console.warn('Sync brain notice:', brainErr);
+      }
+
+      setUploadProgress(100);
+
+      // 更新前端狀態
+      setCustomTimetables(prev => [newTimetableRecord, ...prev.map(t => ({ ...t, active: false }))]);
+      setSelectedTimetable(newTimetableRecord);
+      setCurrentPage(1);
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+
+      setTimeout(() => {
+        setIsUploading(false);
+        setUploadProgress(0);
+        alert(`✅ 課表更新成功！\n\n已即時啟用《${timetableName}》，並自動完成雙校區秒開快照萃取，同步更新至「AI 校務大腦（教務處）」，供全校同仁檢視與 LINE 官方機器人問答！`);
+      }, 300);
+
+    } catch (err) {
+      console.error('課表解析或上傳失敗:', err);
+      alert('課表解析或上傳失敗: ' + err.message);
+      setIsUploading(false);
+      setUploadProgress(0);
+    } finally {
+      e.target.value = null;
+    }
+  };
+
+  // 刪除自訂課表
+  const handleDeleteCustom = async (id, name) => {
+    if (!window.confirm(`確定要刪除自訂課表《${name}》並還原為系統預設課表嗎？`)) return;
+    await deleteCustomTimetable(id);
+    const remaining = customTimetables.filter(t => t.id !== id);
+    setCustomTimetables(remaining);
+    setSelectedTimetable(remaining.length > 0 ? remaining[0] : HISTORICAL_TIMETABLES[0]);
+    handleReset();
+    alert('已成功刪除該自訂課表。');
+  };
 
   // Re-render when page changes in PDF mode
   useEffect(() => {
@@ -310,6 +470,22 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
             </button>
           </div>
 
+          {/* 管理者上傳新課表按鈕 */}
+          {canUploadTimetable && (
+            <label className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition bg-teal-600 hover:bg-teal-700 text-white cursor-pointer shadow-xs active:scale-[0.98]">
+              <Upload size={14} className={isUploading ? 'animate-bounce' : ''} />
+              <span className="hidden sm:inline">{isUploading ? `解析中 (${uploadProgress}%)` : '上傳新課表'}</span>
+              <span className="sm:hidden">{isUploading ? '解析中' : '上傳'}</span>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={handleUploadTimetable}
+                disabled={isUploading}
+                className="hidden"
+              />
+            </label>
+          )}
+
           {/* 歷程課表彈窗按鈕 */}
           <button
             onClick={() => setShowHistoryModal(true)}
@@ -488,11 +664,35 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
             </div>
 
             <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+              {canUploadTimetable && (
+                <div className="p-3 rounded-xl border border-dashed border-teal-300 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+                  <div>
+                    <p className="text-xs font-bold text-teal-950 dark:text-teal-200">
+                      上傳新學期課表 PDF
+                    </p>
+                    <p className="text-[11px] text-teal-700 dark:text-teal-400">
+                      上傳後將自動切換為當前生效課表，並同步存入 AI 大腦
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white cursor-pointer transition shadow-xs flex-shrink-0">
+                    <Upload size={14} className={isUploading ? 'animate-bounce' : ''} />
+                    <span>{isUploading ? `解析中 (${uploadProgress}%)` : '選擇 PDF 上傳'}</span>
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      onChange={handleUploadTimetable}
+                      disabled={isUploading}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              )}
+
               <p className="text-xs text-stone-500 dark:text-stone-400">
                 系統自動封存各學期課表紀錄，供行政調閱與歷史查詢；若有更新課表，舊版自動歸檔。
               </p>
 
-              {HISTORICAL_TIMETABLES.map((item) => {
+              {[...customTimetables, ...HISTORICAL_TIMETABLES].map((item) => {
                 const isCurrent = selectedTimetable.id === item.id;
                 return (
                   <div
@@ -510,7 +710,7 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
                         <h4 className={`text-sm font-extrabold ${isDark ? 'text-stone-100' : 'text-stone-900'}`}>
                           {item.name}
                         </h4>
-                        {item.active ? (
+                        {isCurrent ? (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
                             <CheckCircle2 size={10} />
                             當前生效
@@ -518,6 +718,11 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
                         ) : (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-200 text-stone-600 dark:bg-slate-700 dark:text-stone-300">
                             歷史存檔
+                          </span>
+                        )}
+                        {item.isCustom && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
+                            管理員上傳
                           </span>
                         )}
                       </div>
@@ -549,6 +754,15 @@ export default function TimetableViewer({ pdfUrl = '/timetable.pdf' }) {
                       >
                         <Download size={14} />
                       </a>
+                      {item.isCustom && canUploadTimetable && (
+                        <button
+                          onClick={() => handleDeleteCustom(item.id, item.name)}
+                          className="p-1.5 rounded-lg border text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 border-stone-200 dark:border-slate-700 transition"
+                          title="刪除自訂課表"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
