@@ -23,11 +23,21 @@ export default async function handler(req, res) {
       }
 
       // 嚴格校驗：僅限已建檔之在職教職員查閱校務大腦機敏文件
-      const { data: staffData } = await supabase
+      const { data: staffData, error: staffErr } = await supabase
         .from('staff')
         .select('id, name, department, role_tags')
         .eq('line_uid', auth.uid)
         .maybeSingle();
+
+      if (staffErr) {
+        const isConnErr = /fetch failed|ENOTFOUND|ECONNREFUSED|timeout|503/i.test(staffErr.message || '');
+        if (isConnErr) {
+          return res.status(503).json({
+            error: '校務雲端資料庫連線中斷或處於休眠狀態（Supabase 免費專案超過 7 天無活動），請由管理員登入 Supabase 主控台點擊「Restore project」喚醒。'
+          });
+        }
+        return res.status(500).json({ error: '教職員身分查驗失敗: ' + staffErr.message });
+      }
 
       if (!staffData) {
         return res.status(403).json({ error: 'Forbidden: 僅限已建檔之校內教職員查閱校務知識庫' });
@@ -40,8 +50,19 @@ export default async function handler(req, res) {
       }
       const { data, error } = await query;
       if (error) {
-        console.warn('brain_documents table query note:', error.message);
-        return res.status(200).json([]);
+        const isConnErr = /fetch failed|ENOTFOUND|ECONNREFUSED|timeout|503/i.test(error.message || '');
+        if (isConnErr) {
+          return res.status(503).json({
+            error: '校務雲端資料庫連線中斷或處於休眠狀態，請由管理員喚醒 Supabase。'
+          });
+        }
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          return res.status(500).json({
+            error: '資料庫尚未建立 brain_documents 資料表，請管理員於 Supabase 執行 supabase_brain_documents.sql 遷移腳本。'
+          });
+        }
+        console.error('brain_documents table query error:', error.message);
+        return res.status(500).json({ error: '讀取校務大腦文件失敗：' + error.message });
       }
       return res.status(200).json(data || []);
     }
@@ -54,11 +75,21 @@ export default async function handler(req, res) {
       }
       line_uid = auth.uid;
 
-      const { data: staffData } = await supabase
+      const { data: staffData, error: staffErr } = await supabase
         .from('staff')
         .select('id, name, department, role_tags')
         .eq('line_uid', line_uid)
         .maybeSingle();
+
+      if (staffErr) {
+        const isConnErr = /fetch failed|ENOTFOUND|ECONNREFUSED|timeout|503/i.test(staffErr.message || '');
+        if (isConnErr) {
+          return res.status(503).json({
+            error: '校務雲端資料庫連線中斷或處於休眠狀態，請由管理員喚醒 Supabase。'
+          });
+        }
+        return res.status(500).json({ error: '教職員權限驗證失敗: ' + staffErr.message });
+      }
 
       if (!staffData) {
         return res.status(403).json({ error: 'Forbidden: 僅限已建檔之教職員上傳或維護校務知識庫' });

@@ -3,7 +3,7 @@ import { useApp } from '../App';
 import { roleTags } from '../lib/staffAccess';
 import { getAuthHeaders } from '../lib/authHeader';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { BrainCircuit, FolderOpen, Upload, FileText, Trash2, Eye, CheckCircle2, Clock, Sparkles, ShieldAlert, School, BookOpen, Compass, Wrench, Users, Search, X } from 'lucide-react';
+import { BrainCircuit, FolderOpen, Upload, FileText, Trash2, Eye, CheckCircle2, Clock, Sparkles, ShieldAlert, School, BookOpen, Compass, Wrench, Users, Search, X, RefreshCw, AlertTriangle, LogIn, HardDrive } from 'lucide-react';
 
 const DEPARTMENTS = [
   {
@@ -66,8 +66,20 @@ export default function SchoolBrain() {
   const { isDark, staffData, liffProfile } = useApp();
   const [selectedDeptId, setSelectedDeptId] = useState('academic');
   
-  // 以 Supabase 雲端資料庫為唯一真實來源 (Single Source of Truth)，清除舊版殘留本機快取
+  // 以 Supabase 雲端資料庫為唯一真實來源 (Single Source of Truth)
   const [documents, setDocuments] = useState([]);
+  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
+
+  // 檢查本機瀏覽器是否有過往舊版未同步之快取文件
+  const [legacyCachedDocs, setLegacyCachedDocs] = useState(() => {
+    try {
+      const raw = localStorage.getItem('wutps_real_brain_docs');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -82,18 +94,17 @@ export default function SchoolBrain() {
 
   // 進入時自伺服器同步真實上傳的文件（當 LIFF 身分就緒時自動拉取最新大腦庫）
   useEffect(() => {
-    // 清除過往測試時電腦端可能殘留的舊本機快照
-    try {
-      localStorage.removeItem('wutps_real_brain_docs');
-    } catch (_) {}
     fetchServerDocuments();
   }, [liffProfile?.userId, staffData?.line_uid]);
 
   const fetchServerDocuments = async () => {
+    setIsLoadingDocs(true);
+    setFetchError(null);
     try {
       const lineUid = liffProfile?.userId || staffData?.line_uid || '';
+      const authHeaders = getAuthHeaders(lineUid);
       const res = await fetch('/api/brain', {
-        headers: getAuthHeaders(lineUid)
+        headers: authHeaders
       });
       if (res.ok) {
         const serverDocs = await res.json();
@@ -111,11 +122,94 @@ export default function SchoolBrain() {
             extractedSummary: d.summary || (d.extracted_text ? d.extracted_text.slice(0, 200) + '...' : '已解析入庫')
           }));
           setDocuments(mapped);
+          setFetchError(null);
+        }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        const rawMsg = errJson.error || errJson.message || '';
+        if (res.status === 401) {
+          setFetchError({
+            type: 'auth',
+            status: 401,
+            title: 'LINE 憑證逾期或尚未授權 (401)',
+            message: '目前 LINE 官方驗證憑證已過期或未登入。校務大腦知識庫包含校內規章，需驗證身分後方可讀取。請重新以 LINE 登入。'
+          });
+        } else if (res.status === 403) {
+          setFetchError({
+            type: 'forbidden',
+            status: 403,
+            title: '查無在職教職員身分 (403)',
+            message: '校務大腦機敏文件僅限已建檔之校內教職員查閱，您的帳號目前尚未完成教職員身分審核或綁定。'
+          });
+        } else if (res.status === 503 || rawMsg.includes('休眠') || rawMsg.includes('DATABASE_PAUSED')) {
+          setFetchError({
+            type: 'database_paused',
+            status: 503,
+            title: '雲端資料庫連線中斷或休眠 (503)',
+            message: rawMsg || '校務資料庫因超過 7 天無活動處於休眠狀態，請由管理員登入 Supabase 主控台點擊「Restore project」喚醒。'
+          });
+        } else {
+          setFetchError({
+            type: 'server_error',
+            status: res.status,
+            title: '校務大腦同步異常 (' + res.status + ')',
+            message: rawMsg || '無法取得雲端大腦文件清單，請稍後點擊重新整理重試。'
+          });
         }
       }
     } catch (err) {
       console.warn('Sync brain documents error:', err);
+      setFetchError({
+        type: 'network',
+        title: '網路連線失敗',
+        message: '連線至校務伺服器失敗：' + (err.message || '請確認網路連線')
+      });
+    } finally {
+      setIsLoadingDocs(false);
     }
+  };
+
+  // 一鍵將歷史本機暫存快照同步上傳至雲端資料庫
+  const handleSyncLegacyDocs = async () => {
+    if (!legacyCachedDocs || legacyCachedDocs.length === 0) return;
+    if (!window.confirm(`即將把本機瀏覽器暫存的 ${legacyCachedDocs.length} 份文件同步上傳至 Supabase 雲端資料庫，是否繼續？`)) return;
+
+    setIsLoadingDocs(true);
+    let successCount = 0;
+    const lineUid = liffProfile?.userId || staffData?.line_uid || '';
+    const uploaderName = staffData?.name || liffProfile?.displayName || '本機備份還原';
+
+    for (const doc of legacyCachedDocs) {
+      try {
+        const res = await fetch('/api/brain', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders(lineUid)
+          },
+          body: JSON.stringify({
+            dept_id: doc.deptId || 'academic',
+            title: doc.title,
+            file_name: doc.fileName || doc.title,
+            file_size: doc.fileSize || '未知',
+            uploaded_by: doc.uploadedBy || uploaderName,
+            extracted_text: doc.extractedText || '',
+            summary: doc.extractedSummary || ''
+          })
+        });
+        if (res.ok) successCount++;
+      } catch (e) {
+        console.warn('Legacy sync item error:', e);
+      }
+    }
+
+    try {
+      localStorage.removeItem('wutps_real_brain_docs');
+      setLegacyCachedDocs([]);
+    } catch (_) {}
+
+    alert(`同步完成！成功同步 ${successCount} / ${legacyCachedDocs.length} 份歷史文件。`);
+    await fetchServerDocuments();
   };
 
   // 檢查當前使用者是否有權限在該處室資料夾上傳或刪除文件
@@ -312,7 +406,85 @@ export default function SchoolBrain() {
             </p>
           </div>
         </div>
+        <button
+          onClick={fetchServerDocuments}
+          disabled={isLoadingDocs}
+          title="重新整理校務大腦知識庫"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition bg-white/80 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-slate-700 text-indigo-900 dark:text-indigo-200 border-indigo-200 dark:border-indigo-800 shadow-xs flex-shrink-0"
+        >
+          <RefreshCw size={13} className={isLoadingDocs ? 'animate-spin' : ''} />
+          <span>{isLoadingDocs ? '同步中...' : '重新整理'}</span>
+        </button>
       </div>
+
+      {/* ── 錯誤警示橫幅 ── */}
+      {fetchError && (
+        <div className="mb-4 p-4 rounded-xl border bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800/60 text-amber-900 dark:text-amber-200">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={20} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <h4 className="text-xs font-extrabold text-amber-900 dark:text-amber-100">
+                {fetchError.title || '校務大腦同步提醒'}
+              </h4>
+              <p className="text-xs mt-1 text-amber-800 dark:text-amber-300 leading-relaxed">
+                {fetchError.message}
+              </p>
+              <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                {fetchError.type === 'auth' && (
+                  <button
+                    onClick={() => {
+                      if (typeof liff !== 'undefined' && liff.login) {
+                        liff.login();
+                      } else {
+                        window.location.reload();
+                      }
+                    }}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                  >
+                    <LogIn size={13} />
+                    重新以 LINE 登入
+                  </button>
+                )}
+                <button
+                  onClick={fetchServerDocuments}
+                  disabled={isLoadingDocs}
+                  className="px-3 py-1 bg-white dark:bg-slate-800 hover:bg-stone-100 dark:hover:bg-slate-700 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                >
+                  <RefreshCw size={13} className={isLoadingDocs ? 'animate-spin' : ''} />
+                  重新嘗試連線
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 本機歷史快照救援橫幅 ── */}
+      {legacyCachedDocs.length > 0 && documents.length === 0 && !isLoadingDocs && (
+        <div className="mb-4 p-4 rounded-xl border bg-indigo-100/70 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-800 text-indigo-950 dark:text-indigo-200">
+          <div className="flex items-start gap-3">
+            <HardDrive size={20} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <h4 className="text-xs font-extrabold text-indigo-900 dark:text-indigo-100">
+                發現本機瀏覽器暫存有 {legacyCachedDocs.length} 份歷史大腦文件快照
+              </h4>
+              <p className="text-xs mt-1 text-indigo-800 dark:text-indigo-300 leading-relaxed">
+                您過往上傳之規章文件目前暫存於此裝置瀏覽器中，尚未持久化至 Supabase 雲端資料庫。您可以點擊下方按鈕一鍵上傳備份至雲端，確保跨裝置與 LINE 機器人可檢索。
+              </p>
+              <div className="mt-2.5">
+                <button
+                  onClick={handleSyncLegacyDocs}
+                  disabled={isLoadingDocs}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                >
+                  <Upload size={13} />
+                  一鍵同步上傳至雲端大腦
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 六大處室資料夾切換列 ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-5">
@@ -435,7 +607,17 @@ export default function SchoolBrain() {
         </div>
 
         {/* 文件列表 */}
-        {filteredDocs.length === 0 ? (
+        {isLoadingDocs ? (
+          <div className="text-center py-10 border border-dashed rounded-xl border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/30 dark:bg-indigo-950/20">
+            <BrainCircuit size={32} className="mx-auto text-indigo-500 animate-pulse mb-2" />
+            <p className="text-xs font-extrabold text-indigo-900 dark:text-indigo-200">
+              正在自校務雲端大腦同步知識庫文件...
+            </p>
+            <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+              檢查處室官方 PDF 規章中
+            </p>
+          </div>
+        ) : filteredDocs.length === 0 ? (
           <div className="text-center py-10 border border-dashed rounded-xl border-stone-200 dark:border-slate-800">
             <FileText size={32} className="mx-auto text-stone-300 dark:text-stone-600 mb-2" />
             <p className={`text-xs font-bold ${subTextColor}`}>

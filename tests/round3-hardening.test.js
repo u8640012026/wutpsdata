@@ -135,6 +135,129 @@ test('api/brain GET rejects valid token user who is not in staff table with 403'
   assert.match(body.error, /僅限已建檔之校內教職員/);
 });
 
+test('api/brain GET rejects request missing ID token with 401', async t => {
+  const { default: handler } = await import(`../api/brain.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'GET',
+      headers: { 'x-line-uid': 'teacher_uid' },
+      query: {}
+    },
+    {
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      send(v) { body = v; }
+    }
+  );
+
+  assert.equal(statusCode, 401);
+  assert.match(body.error, /缺少 LINE 官方 ID Token 憑證/);
+});
+
+test('api/brain GET returns 503 when database is paused or connection fails', async t => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const address = new URL(String(url));
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ message: 'fetch failed (connection timeout 503)' }, 503);
+    }
+    throw new Error(`Unexpected table: ${table}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/brain.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'GET',
+      headers: { 'x-line-uid': 'teacher_uid', 'x-line-id-token': 'test-token' },
+      query: {}
+    },
+    {
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      send(v) { body = v; }
+    }
+  );
+
+  assert.equal(statusCode, 503);
+  assert.match(body.error, /休眠狀態/);
+});
+
+test('api/brain GET returns 500 with migration prompt when brain_documents table does not exist', async t => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const address = new URL(String(url));
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'teacher_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'brain_documents') {
+      return json({ code: '42P01', message: 'relation "public.brain_documents" does not exist' }, 404);
+    }
+    throw new Error(`Unexpected table: ${table}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/brain.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'GET',
+      headers: { 'x-line-uid': 'teacher_uid', 'x-line-id-token': 'test-token' },
+      query: {}
+    },
+    {
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      send(v) { body = v; }
+    }
+  );
+
+  assert.equal(statusCode, 500);
+  assert.match(body.error, /supabase_brain_documents\.sql/);
+});
+
+test('api/brain GET returns documents list for authenticated staff', async t => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const address = new URL(String(url));
+    const table = address.pathname.split('/').pop();
+    if (table === 'staff') {
+      return json({ id: 's1', line_uid: 'teacher_uid', role_tags: '2', department: '教務處' });
+    }
+    if (table === 'brain_documents') {
+      return json([
+        { id: 'b1', dept_id: 'academic', title: '114學年度課表編排原則.pdf', file_name: '114學年度課表編排原則.pdf' }
+      ]);
+    }
+    throw new Error(`Unexpected table: ${table}`);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const { default: handler } = await import(`../api/brain.js?test=${++moduleId}`);
+  let statusCode, body;
+  await handler(
+    {
+      method: 'GET',
+      headers: { 'x-line-uid': 'teacher_uid', 'x-line-id-token': 'test-token' },
+      query: { dept_id: 'academic' }
+    },
+    {
+      status(code) { statusCode = code; return this; },
+      json(v) { body = v; return this; },
+      send(v) { body = v; }
+    }
+  );
+
+  assert.equal(statusCode, 200);
+  assert.equal(Array.isArray(body), true);
+  assert.equal(body.length, 1);
+  assert.equal(body[0].title, '114學年度課表編排原則.pdf');
+});
+
 test('api/announcement_comments POST rejects valid token user who is not in staff table with 403', async t => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
