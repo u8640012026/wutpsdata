@@ -6,10 +6,6 @@ on:
     - cron: '0 1,13 * * *'
   workflow_dispatch:
 
-permissions:
-  actions: write
-  contents: write
-
 jobs:
   heartbeat:
     name: 🩺 守護打卡與健康探測
@@ -36,10 +32,3 @@ jobs:
             echo "⚠️ 連線狀態碼: $HTTP_STATUS"
             cat /tmp/resp.json || true
           fi
-
-      - name: 📥 檢出程式碼以進行 GitHub 保活判定
-        uses: actions/checkout@v4
-
-      - name: 🛡️ 自動重置 GitHub 60 天活動計時器 (防止 GitHub Actions 休眠)
-        uses: gautamkrishnar/keepalive-workflow@v2
-        continue-on-error: true
