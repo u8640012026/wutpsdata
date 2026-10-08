@@ -14,7 +14,6 @@
     "@base-ui/react": "^1.7.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@line/liff": "^2.31.0",
-    "@napi-rs/canvas": "^1.0.8",
     "@supabase/supabase-js": "^2.112.4",
     "browser-image-compression": "^2.0.2",
     "class-variance-authority": "^0.7.1",
